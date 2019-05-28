@@ -1,0 +1,52 @@
+[tool.poetry]
+name = "humiocore"
+version = "0.1.5"
+description = "A python library for for interacting with the Humio API"
+authors = ["Jostein Haukeli"]
+repository = "https://github.com/gwtwod/py3humiocore"
+readme = "README.md"
+
+packages = [
+    { include = "humiocore" }
+]
+
+[tool.poetry.dependencies]
+python = "^3.6"
+snaptime = "^0.2.4"
+pytz = "^2018.9"
+requests = "^2.21"
+structlog = "^19.1"
+structlog-pretty = "^0.1.1"
+colorama = "^0.4.1"
+pandas = "^0.24.1"
+tzlocal = "^1.5"
+aiohttp = "^3.5"
+chardet = "^3.0"
+python-dotenv = "^0.10.2"
+
+[tool.poetry.dev-dependencies]
+black = { version = "*", allows-prereleases = true }
+
+[tool.dephell.main]
+from = {format = "poetry", path = "pyproject.toml"}
+to = {format = "setuppy", path = "setup.py"}
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
+
+[tool.black]
+line-length = 98
+target-version = ['py36', 'py37', 'py38']
+include = '\.pyi?$'
+exclude = '''
+(/(
+    \.eggs
+  | \.git
+  | \.venv
+  | _?build
+  | dist
+)/
+  | setup\.py
+)
+'''
