@@ -191,7 +191,7 @@ class HumioAPI:
             if messages_length > 0:
                 payload = [{**fields, "messages": messages}]
 
-                if dry:
+                if not dry:
                     req = requests.post(url, json=payload, headers=headers)
                     detailed_raise_for_status(req)
                 else:
