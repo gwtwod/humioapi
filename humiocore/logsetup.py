@@ -15,6 +15,16 @@ def _add_thread_info(_, __, event_dict):
 
 
 def setup_excellent_logging(level="INFO"):
+    levels = ['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET']
+
+    if str(level).isdigit():
+        if level < len(levels):
+            level = levels[max(level, 0)]
+        else:
+            level = levels[-1]
+    elif level not in levels:
+        raise ValueError("Logging level must be one of %s when using named levels" % levels)
+
     timestamper = structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S")
     pre_chain = [
         _add_thread_info,

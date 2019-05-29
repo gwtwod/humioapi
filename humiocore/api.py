@@ -190,12 +190,11 @@ class HumioAPI:
 
             if messages_length > 0:
                 payload = [{**fields, "messages": messages}]
+                logger.debug("Ingestion request prepared", json_payload=json.dumps(payload))
 
                 if not dry:
                     req = requests.post(url, json=payload, headers=headers)
                     detailed_raise_for_status(req)
-                else:
-                    logger.info("Ingestion prepared", payload=payload)
 
         pending = []
         for event in events:
@@ -213,7 +212,7 @@ class HumioAPI:
             pending.append(event)
         _send(headers, url, pending, fields, soft_limit, dry)
 
-        logger.info("Ingestion complete")
+        logger.info("All ingestions complete")
 
     def repositories(self, ignore="(-qa|-test)$"):
         """
