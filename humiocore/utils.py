@@ -2,12 +2,11 @@
 Collection of misc utility functions
 """
 
-import snaptime
-import tzlocal
 import pandas as pd
-from requests.exceptions import HTTPError
-
+import snaptime
 import structlog
+import tzlocal
+from requests.exceptions import HTTPError
 
 logger = structlog.getLogger(__name__)
 

@@ -2,16 +2,16 @@
 This module implements an API object for interacting with the Humio API
 """
 
+import asyncio
 import json
 import re
 from itertools import chain
 
-import pandas as pd
-import structlog
-
-import requests
 import aiohttp
-import asyncio
+import pandas as pd
+import requests
+import structlog
+import tzlocal
 
 from .utils import detailed_raise_for_status
 
@@ -28,8 +28,11 @@ class HumioAPI:
         self.ingest_token = ingest_token
         self._base_headers = {"Content-Type": "application/json", "Accept": "application/json"}
 
-    def headers(self, overrides={}):
+    def headers(self, overrides=None):
         """Returns a base JSON header with optional overrides from kwargs"""
+
+        if overrides is None:
+            overrides = {}
 
         headers = {**self._base_headers, **overrides}
         if "authorization" not in set(k.lower() for k in headers):
@@ -136,8 +139,8 @@ class HumioAPI:
         logger.info(
             "Creating new streaming jobs",
             json_payload=(json.dumps(payload)),
-            start=start.tz_convert("Europe/Oslo").isoformat(),
-            end=end.tz_convert("Europe/Oslo").isoformat(),
+            start=start.tz_convert(tzlocal.get_localzone()).isoformat(),
+            end=end.tz_convert(tzlocal.get_localzone()).isoformat(),
             span=str(end - start),
             repos=repos,
         )
@@ -154,7 +157,7 @@ class HumioAPI:
 
         logger.info("All steaming jobs ended")
 
-    def ingest_unstructured(self, events=[], fields={}, soft_limit=2 ** 20, dry=False):
+    def ingest_unstructured(self, events=None, fields=None, soft_limit=2 ** 20, dry=False):
         """
         TODO: Doesn't support 'content-encoding': 'gzip' yet
 
@@ -169,6 +172,11 @@ class HumioAPI:
 
         if dry:
             logger.warn("Running in dry mode, no events will be ingested")
+
+        if events is None:
+            events = []
+        if fields is None:
+            fields = {}
 
         def _send(headers, url, messages, fields, soft_limit, dry):
             messages_length = len("".join(messages))

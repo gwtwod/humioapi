@@ -4,9 +4,10 @@ This module provides helper objects to manage searches
 
 from threading import Lock
 
-from .utils import humio_to_timeseries, parse_ts
 import pandas as pd
 import structlog
+
+from .utils import humio_to_timeseries, parse_ts
 
 logger = structlog.getLogger(__name__)
 

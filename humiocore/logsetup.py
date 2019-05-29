@@ -1,7 +1,8 @@
-import sys
-import threading
 import logging
 import logging.config
+import sys
+import threading
+
 import structlog
 import structlog_pretty
 
