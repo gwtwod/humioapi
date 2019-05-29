@@ -21,7 +21,7 @@ if os.path.exists(readme_path):
 setup(
     long_description=readme,
     name='humiocore',
-    version='0.1.8',
+    version='0.1.9',
     description='A python library for for interacting with the Humio API',
     python_requires='==3.*,>=3.6.0',
     project_urls={'repository': 'https://github.com/gwtwod/py3humiocore'},
@@ -35,5 +35,5 @@ setup(
         'snaptime==0.*,>=0.2.4', 'structlog==19.*,>=19.1.0',
         'structlog-pretty==0.*,>=0.1.1', 'tzlocal==1.*,>=1.5.0'
     ],
-    extras_require={'dev': ['black']},
+    extras_require={'dev': ['black', 'pylint==2.*,>=2.3.0']},
 )

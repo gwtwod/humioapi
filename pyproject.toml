@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "humiocore"
-version = "0.1.8"
+version = "0.1.9"
 description = "A python library for for interacting with the Humio API"
 authors = ["Jostein Haukeli"]
 repository = "https://github.com/gwtwod/py3humiocore"
@@ -26,6 +26,7 @@ python-dotenv = "^0.10.2"
 
 [tool.poetry.dev-dependencies]
 black = { version = "*", allows-prereleases = true }
+pylint = "^2.3"
 
 [tool.dephell.main]
 from = {format = "poetry", path = "pyproject.toml"}

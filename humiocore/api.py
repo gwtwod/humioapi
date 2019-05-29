@@ -189,7 +189,9 @@ class HumioAPI:
             )
 
             if messages_length > 0:
-                payload = [{**fields, "messages": messages}]
+                payload = [{"messages": messages}]
+                if fields:
+                    payload[0]["fields"] = fields
                 logger.debug("Ingestion request prepared", json_payload=json.dumps(payload))
 
                 if not dry:
