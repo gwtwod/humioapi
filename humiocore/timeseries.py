@@ -2,10 +2,13 @@
 This module provides helper objects to manage searches
 """
 
+import json
 from threading import Lock
 
 import pandas as pd
 import structlog
+
+from snaptime import snap
 
 from .utils import humio_to_timeseries, parse_ts
 
@@ -13,44 +16,76 @@ logger = structlog.getLogger(__name__)
 
 
 class WindowedTimeseries:
-    """Define an aggregated search for timeseries data in an optionally moving
-    time window.
+    """
+    Define an aggregated search for timeseries data in the spesified time
+    window which may be static or moving (with relative timestamps).
 
-    On first update all data for the requested window is fetched. New updates
-    will trigger a new search backwards based on the refresh_window.
-
-    Example:
-            `start='-60m@m'`, `end='-1m@m'`, `refresh_window='2m'`
-            This will look back 2 minutes from the end when updating and
-            overwrite with new data for the overlapping window.
+    Parameters
+    ----------
+    api : humiocore.HumioAPI
+        An API instance for interacting with Humio
+    query : string
+        A Humio query string to execute
+    repos : list
+        A list of repositories to search against
+    start : string
+        A snaptime-token (-1h@h) or timestring to search after
+    end : string
+        A snaptime-token (@h) or timestring to search before
+    freq : str
+        A pandas frequency string to use when calculating missing buckets.
+        This *must* correspond to the frequency used in the Humio search.
+    timefield : str, optional
+        The name of the timestamp field in the search result, by default "_bucket"
+    datafields : list, optional
+        A list of all data fields ("columns") in the search result, by default None
+        which means all fields remaining after groupby are used.
+    groupby : list, optional
+        A list of all groupby fields ("series") in the search result, by default None
+        which means no grouping is performed.
+    title : str, optional
+        A title identifying this search - use however you like, by default ""
+    cutoff_start : str, optional
+        An unsigned snaptime-token to cutoff the head of the final DataFrame, by default "0m"
+    cutoff_end : str, optional
+        An unsigned snaptime-token to cutoff the tail of the final DataFrame, by default "0m"
+    trusted_pickle : string, optional
+        A path to a trusted pickle-file to save/load the DataFrame, by default None
     """
 
     def __init__(
         self,
         api,
         query,
-        repo,
+        repos,
         start,
         end,
         freq,
         timefield="_bucket",
+        datafields=None,
+        groupby=None,
         title="",
+        cutoff_start="0m",
+        cutoff_end="0m",
         trusted_pickle=None,
     ):
         self.api = api
         self.query = query
-        self.repo = repo
+        self.repos = repos
         self.start = start
         self.end = end
 
         self.freq = freq
         self.timefield = timefield
+        self.datafields = datafields
+        self.groupby = groupby
         self.title = title
+        self.cutoff_start = cutoff_start
+        self.cutoff_end = cutoff_end
 
         self.data = pd.DataFrame()
-        self.performance = []
         self.trusted_pickle = trusted_pickle
-
+        self._metadata = {}
         self.lock = Lock()
 
         if self.trusted_pickle:
@@ -63,22 +98,55 @@ class WindowedTimeseries:
             event_count=len(self.data),
         )
 
+    def copyable_attributes(self, ignore=None):
+        """
+        Provieds all instance attributes that can be considered copyable
+
+        Parameters
+        ----------
+        ignore : list, optional
+            A list of attributes to ignore, by default all non-copyable keys
+
+        Returns
+        -------
+        dict
+            A dictionary of all copyable keys
+        """
+        if ignore is None:
+            ignore = ['api', 'data', 'trusted_pickle', 'lock', '_metadata']
+        return {k: v for k, v in self.__dict__.items() if k not in ignore}
+
     def sanity_check(self):
         # Check that the searchstring span is equal to the pandas freq
         pass
 
     def load_df(self):
         """Loads and unpickles a trusted pickled pd.DataFrame"""
+
         try:
-            self.data = pd.read_pickle(self.trusted_pickle)
-            logger.debug("Loaded pickled data from file", event_count=len(self.data))
+            with open(self.trusted_pickle + '.meta', 'r') as metafile:
+                meta = json.load(metafile)
+
+                for key, value in self.copyable_attributes().items():
+                    if key in meta and value != meta[key]:
+                        logger.info('Search has changed since DataFrame was pickled',
+                                    parameter=key,
+                                    stored_value=meta[key],
+                                    current_value=value)
+                        self.data = pd.DataFrame()
+                        return
+
+            self.data = pd.read_pickle(self.trusted_pickle + '.pkl')
+            logger.debug("Loaded pickled data from file", event_count=len(self.data), pickle=self.trusted_pickle + '.pkl')
         except FileNotFoundError:
             pass
 
     def save_df(self):
         """Saves a pickled `pd.DataFrame` to file"""
-        self.data.to_pickle(self.trusted_pickle)
-        logger.debug("Saved pickled data to file", event_count=len(self.data))
+        with open(self.trusted_pickle + '.meta', 'w') as metafile:
+            json.dump(self.copyable_attributes(), metafile)
+        self.data.to_pickle(self.trusted_pickle + '.pkl')
+        logger.debug("Saved pickled data to file", event_count=len(self.data), pickle=self.trusted_pickle + '.pkl')
 
     def current_refresh_window(self):
         """Returns the smallest possible search window required to update missing data
@@ -87,15 +155,30 @@ class WindowedTimeseries:
             (`pd.Timestamp`, `pd.Timestamp`)
         """
 
+        # Shrink the search window according to the cutoffs and generate all buckets
+        # that should appear in the current DataFrame
         wanted_buckets = pd.date_range(
-            parse_ts(self.start), parse_ts(self.end), freq=self.freq, closed="left"
+            snap(parse_ts(self.start), "+" + self.cutoff_start),
+            snap(parse_ts(self.end), "-" + self.cutoff_end),
+            freq=self.freq,
+            closed="left"
         )
         missing = wanted_buckets.difference(self.data.index.dropna(how="all").unique())
+
         if missing.empty:
+            logger.debug('Calculated minimum required search range and found no missing buckets',
+                        current_start=self.data.index.min(), current_end=self.data.index.max(),
+                        wanted_start=wanted_buckets.min(), wanted_end=wanted_buckets.max())
             return None, None
 
-        start = missing.min()
-        end = missing.max() + pd.Timedelta(self.freq)
+        # Expand the search window again according to the cutoffs
+        start = snap(missing.min(), "-" + self.cutoff_start)
+        end = snap(missing.max() + pd.Timedelta(self.freq), "+" + self.cutoff_end)
+
+        logger.debug('Calculated minimum required search range',
+                      current_start=self.data.index.min(), current_end=self.data.index.max(),
+                      wanted_start=wanted_buckets.min(), wanted_end=wanted_buckets.max(),
+                      next_start=start, next_end=end,)
         return start, end
 
     def update(self):
@@ -117,21 +200,21 @@ class WindowedTimeseries:
             try:
                 start, end = self.current_refresh_window()
                 if all([start, end]):
-                    new_data = list(self.api.streaming_search(self.query, self.repo, start, end))
+                    new_data = list(self.api.streaming_search(self.query, self.repos, start, end))
 
                     if new_data:
-                        data = humio_to_timeseries(new_data, self.timefield, freq=self.freq)
-                        # TODO: consider dropping existing data and warn if columns differ?
+                        data = humio_to_timeseries(new_data, timefield=self.timefield, datafields=self.datafields, groupby=self.groupby)
                         self.data = data.combine_first(self.data)
+
                     else:
                         logger.error("Update failed.")
                 else:
                     logger.info("Data is already current. Not fetching new data.")
 
-                # Remove data outside the current search window
+                # Clean up data outside the current search window, adjusted with the cutoffs
                 self.data = self.data[
-                    (self.data.index >= str(parse_ts(self.start)))
-                    & (self.data.index < str(parse_ts(self.end)))
+                    (self.data.index >= str(snap(parse_ts(self.start), "+" + self.cutoff_start)))
+                    & (self.data.index < str(snap(parse_ts(self.end), "-" + self.cutoff_end)))
                 ]
 
                 if self.trusted_pickle:
@@ -139,4 +222,4 @@ class WindowedTimeseries:
             finally:
                 self.lock.release()
         else:
-            logger.info("Data update already in progress in another thread")
+            logger.info("Data update already in progress in another thread", lock=self.lock)

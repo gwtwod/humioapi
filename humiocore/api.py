@@ -35,8 +35,8 @@ class HumioAPI:
             overrides = {}
 
         headers = {**self._base_headers, **overrides}
-        if "authorization" not in set(k.lower() for k in headers):
-            logger.warn("No token provided in Authorization header")
+        if "authorization" not in set(k.lower() for k in headers) or not headers["authorization"]:
+            logger.error("No token provided in Authorization header")
         elif not headers["authorization"].startswith("Bearer"):
             headers["authorization"] = "Bearer " + headers["authorization"]
         return headers
@@ -139,9 +139,9 @@ class HumioAPI:
         logger.info(
             "Creating new streaming jobs",
             json_payload=(json.dumps(payload)),
-            start=start.tz_convert(tzlocal.get_localzone()).isoformat(),
-            end=end.tz_convert(tzlocal.get_localzone()).isoformat(),
-            span=str(end - start),
+            time_start=start.tz_convert(tzlocal.get_localzone()).isoformat(),
+            time_stop=end.tz_convert(tzlocal.get_localzone()).isoformat(),
+            time_span=str(end - start),
             repos=repos,
         )
 

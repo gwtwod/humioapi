@@ -57,32 +57,28 @@ def detailed_raise_for_status(res):
             raise err
 
 
-def humio_to_dataframe(events, index="_bucket"):
-    """Convert a list of Humio data dicts to a simple pandas dataframe
-    """
+def humio_to_timeseries(events, timefield='_bucket', datafields=None, groupby=None, fill=None, sep='@'):
+    '''Convert a list of Humio event dicts to a datetime-indexed pandas dataframe
+    '''
 
-    data = pd.DataFrame.from_dict(events, orient="columns")
-    return data
+    df = pd.DataFrame.from_records(events)
+    df = df.apply(pd.to_numeric, errors='ignore')
 
+    df[timefield] = pd.to_datetime(df[timefield], unit='ms', utc=True)
+    df = pd.pivot_table(df, index=timefield, values=datafields, columns=groupby, fill_value=fill)
+    df = df.tz_convert(tzlocal.get_localzone())
 
-def humio_to_timeseries(events, timefield="_bucket", groupby=None, freq=None):
-    """Convert a list of Humio data dicts to a datetime-indexed pandas dataframe
-    """
-
-    data = pd.DataFrame.from_records(events)
-    data = data.apply(pd.to_numeric, errors="ignore")
-    try:
-        data[timefield] = pd.to_datetime(data[timefield], unit="ms", utc=True)
-        data = data.set_index(timefield)
-        data = data.tz_convert(tzlocal.get_localzone())
-    except KeyError:
-        pass
+    # Make column headers more human friendly if we're working with a multiindex
+    if isinstance(df.columns, pd.MultiIndex):
+        if len(df.columns.levels) == 2:
+            df.columns = [sep.join(col).strip() for col in df.columns.values]
+        elif len(df.columns.levels) > 2:
+            df.columns = [sep.join(col).strip() for col in df.columns.values]
 
     # pandas bug https://github.com/pandas-dev/pandas/issues/25439
     import warnings  # noqa
-
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        data = data.sort_index()
+        df = df.sort_index()
 
-    return data
+    return df
