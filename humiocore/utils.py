@@ -2,6 +2,7 @@
 Collection of misc utility functions
 """
 
+import urllib
 import pandas as pd
 import snaptime
 import structlog
@@ -32,8 +33,17 @@ def parse_ts(timestring):
             return timestamp
         else:
             return timestamp.tz_localize(tz=tzlocal.get_localzone())
-    except ValueError:
+    except (ValueError, OverflowError):
         logger.debug("Could not parse the provided timestring with pandas", timestring=timestring)
+
+    try:
+        timestamp = pd.to_datetime(timestring, unit="ms", utc=True)
+        return timestamp.tz_convert(tz=tzlocal.get_localzone())
+    except (ValueError, pd.errors.OutOfBoundsDatetime):
+        logger.debug(
+            "Could not parse the provided timestring as a millisecond epoch",
+            timestring=timestring,
+        )
 
     raise ValueError(
         f"Could understand the provided timestring ({timestring}). Try something less ambigous?"
@@ -57,14 +67,16 @@ def detailed_raise_for_status(res):
             raise err
 
 
-def humio_to_timeseries(events, timefield='_bucket', datafields=None, groupby=None, fill=None, sep='@'):
-    '''Convert a list of Humio event dicts to a datetime-indexed pandas dataframe
-    '''
+def humio_to_timeseries(
+    events, timefield="_bucket", datafields=None, groupby=None, fill=None, sep="@"
+):
+    """Convert a list of Humio event dicts to a datetime-indexed pandas dataframe
+    """
 
     df = pd.DataFrame.from_records(events)
-    df = df.apply(pd.to_numeric, errors='ignore')
+    df = df.apply(pd.to_numeric, errors="ignore")
 
-    df[timefield] = pd.to_datetime(df[timefield], unit='ms', utc=True)
+    df[timefield] = pd.to_datetime(df[timefield], unit="ms", utc=True)
     df = pd.pivot_table(df, index=timefield, values=datafields, columns=groupby, fill_value=fill)
     df = df.tz_convert(tzlocal.get_localzone())
 
@@ -77,8 +89,63 @@ def humio_to_timeseries(events, timefield='_bucket', datafields=None, groupby=No
 
     # pandas bug https://github.com/pandas-dev/pandas/issues/25439
     import warnings  # noqa
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         df = df.sort_index()
 
     return df
+
+
+def parse_humio_url(url):
+    """
+    Parses a Humio search URL and returns the components needed to create a
+    similar search using the Humio API
+
+    Returns
+    -------
+    tuple
+        query : str
+        repo : str
+        start : pd.Timestamp
+        end : pd.Timestamp
+    """
+
+    parsed = urllib.parse.urlparse(url)
+    querystring = urllib.parse.parse_qs(parsed.query)
+
+    query = querystring.get("query", [""])[0]
+    repo = parsed.path.split("/")[1]
+
+    start = querystring.get("start", ["24h"])[0]
+    if start.isdigit():
+        start = parse_ts(start)
+    else:
+        # Humio doesnt use signed relative time modifiers
+        start = parse_ts(f"-{start}")
+
+    end = querystring.get("end", ["now"])[0]
+    end = parse_ts(end)
+
+    return (query, repo, start, end)
+
+
+def create_humio_url(base_url, repo, query, start, end, scheme="https"):
+    """Returns a Humio search URL built from the provided components"""
+
+    start = int(start.timestamp() * 1000)
+    end = int(end.timestamp() * 1000)
+
+    query = {"query": query, "start": start, "end": end}
+
+    url = urllib.parse.ParseResult(
+        scheme=scheme,
+        netloc=urllib.parse.urlsplit(base_url).netloc,
+        path=f"/{repo}/search",
+        params=None,
+        query=urllib.parse.urlencode(query, quote_via=urllib.parse.quote),
+        fragment=None,
+    )
+
+    url = urllib.parse.urlunparse(url)
+    return url

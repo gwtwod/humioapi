@@ -113,7 +113,7 @@ class WindowedTimeseries:
             A dictionary of all copyable keys
         """
         if ignore is None:
-            ignore = ['api', 'data', 'trusted_pickle', 'lock', '_metadata']
+            ignore = ["api", "data", "trusted_pickle", "lock", "_metadata"]
         return {k: v for k, v in self.__dict__.items() if k not in ignore}
 
     def sanity_check(self):
@@ -124,29 +124,39 @@ class WindowedTimeseries:
         """Loads and unpickles a trusted pickled pd.DataFrame"""
 
         try:
-            with open(self.trusted_pickle + '.meta', 'r') as metafile:
+            with open(self.trusted_pickle + ".meta", "r") as metafile:
                 meta = json.load(metafile)
 
                 for key, value in self.copyable_attributes().items():
                     if key in meta and value != meta[key]:
-                        logger.info('Search has changed since DataFrame was pickled',
-                                    parameter=key,
-                                    stored_value=meta[key],
-                                    current_value=value)
+                        logger.info(
+                            "Search has changed since DataFrame was pickled",
+                            parameter=key,
+                            stored_value=meta[key],
+                            current_value=value,
+                        )
                         self.data = pd.DataFrame()
                         return
 
-            self.data = pd.read_pickle(self.trusted_pickle + '.pkl')
-            logger.debug("Loaded pickled data from file", event_count=len(self.data), pickle=self.trusted_pickle + '.pkl')
+            self.data = pd.read_pickle(self.trusted_pickle + ".pkl")
+            logger.debug(
+                "Loaded pickled data from file",
+                event_count=len(self.data),
+                pickle=self.trusted_pickle + ".pkl",
+            )
         except FileNotFoundError:
             pass
 
     def save_df(self):
         """Saves a pickled `pd.DataFrame` to file"""
-        with open(self.trusted_pickle + '.meta', 'w') as metafile:
+        with open(self.trusted_pickle + ".meta", "w") as metafile:
             json.dump(self.copyable_attributes(), metafile)
-        self.data.to_pickle(self.trusted_pickle + '.pkl')
-        logger.debug("Saved pickled data to file", event_count=len(self.data), pickle=self.trusted_pickle + '.pkl')
+        self.data.to_pickle(self.trusted_pickle + ".pkl")
+        logger.debug(
+            "Saved pickled data to file",
+            event_count=len(self.data),
+            pickle=self.trusted_pickle + ".pkl",
+        )
 
     def current_refresh_window(self):
         """Returns the smallest possible search window required to update missing data
@@ -161,24 +171,33 @@ class WindowedTimeseries:
             snap(parse_ts(self.start), "+" + self.cutoff_start),
             snap(parse_ts(self.end), "-" + self.cutoff_end),
             freq=self.freq,
-            closed="left"
+            closed="left",
         )
         missing = wanted_buckets.difference(self.data.index.dropna(how="all").unique())
 
         if missing.empty:
-            logger.debug('Calculated minimum required search range and found no missing buckets',
-                        current_start=self.data.index.min(), current_end=self.data.index.max(),
-                        wanted_start=wanted_buckets.min(), wanted_end=wanted_buckets.max())
+            logger.debug(
+                "Calculated minimum required search range and found no missing buckets",
+                current_start=self.data.index.min(),
+                current_end=self.data.index.max(),
+                wanted_start=wanted_buckets.min(),
+                wanted_end=wanted_buckets.max(),
+            )
             return None, None
 
         # Expand the search window again according to the cutoffs
         start = snap(missing.min(), "-" + self.cutoff_start)
         end = snap(missing.max() + pd.Timedelta(self.freq), "+" + self.cutoff_end)
 
-        logger.debug('Calculated minimum required search range',
-                      current_start=self.data.index.min(), current_end=self.data.index.max(),
-                      wanted_start=wanted_buckets.min(), wanted_end=wanted_buckets.max(),
-                      next_start=start, next_end=end,)
+        logger.debug(
+            "Calculated minimum required search range",
+            current_start=self.data.index.min(),
+            current_end=self.data.index.max(),
+            wanted_start=wanted_buckets.min(),
+            wanted_end=wanted_buckets.max(),
+            next_start=start,
+            next_end=end,
+        )
         return start, end
 
     def update(self):
@@ -203,7 +222,12 @@ class WindowedTimeseries:
                     new_data = list(self.api.streaming_search(self.query, self.repos, start, end))
 
                     if new_data:
-                        data = humio_to_timeseries(new_data, timefield=self.timefield, datafields=self.datafields, groupby=self.groupby)
+                        data = humio_to_timeseries(
+                            new_data,
+                            timefield=self.timefield,
+                            datafields=self.datafields,
+                            groupby=self.groupby,
+                        )
                         self.data = data.combine_first(self.data)
 
                     else:
