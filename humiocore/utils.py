@@ -2,6 +2,7 @@
 Collection of misc utility functions
 """
 
+import re
 import urllib
 import pandas as pd
 import snaptime
@@ -149,3 +150,19 @@ def create_humio_url(base_url, repo, query, start, end, scheme="https"):
 
     url = urllib.parse.urlunparse(url)
     return url
+
+
+def tstrip(timestamp):
+    """
+    Returns a shortened and more imprecise timestring by stripping off
+    trailing zeros and timezone information. Also works on pd.Timedelta.
+    """
+
+    components = re.compile(r"[T\s:]00$|[\.,]0+$|([\.,]\d+)0+$|\+\d+:\d+$|^0 days ")
+    timestamp = str(timestamp)
+
+    while True:
+        output = components.sub(r"\1", timestamp)
+        if output == timestamp:
+            return output
+        timestamp = output

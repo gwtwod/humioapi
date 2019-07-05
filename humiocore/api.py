@@ -13,7 +13,7 @@ import requests
 import structlog
 import tzlocal
 
-from .utils import detailed_raise_for_status
+from .utils import detailed_raise_for_status, tstrip
 
 logger = structlog.getLogger(__name__)
 
@@ -97,7 +97,15 @@ class HumioAPI:
                 tasks = []
                 for url in urls:
                     tasks.append(asyncio.ensure_future(fetch(session, url, headers, payload)))
-                logger.info("Registered all task", tasks=len(tasks))
+                logger.info(
+                    "Registered all task",
+                    json_payload=(json.dumps(payload)),
+                    tasks=len(tasks),
+                    time_start=start.tz_convert(tzlocal.get_localzone()).isoformat(),
+                    time_stop=end.tz_convert(tzlocal.get_localzone()).isoformat(),
+                    time_span=tstrip(end - start),
+                    repos=repos,
+                )
                 return await asyncio.gather(*tasks)
 
         connector = aiohttp.TCPConnector(limit=limit)
@@ -141,7 +149,7 @@ class HumioAPI:
             json_payload=(json.dumps(payload)),
             time_start=start.tz_convert(tzlocal.get_localzone()).isoformat(),
             time_stop=end.tz_convert(tzlocal.get_localzone()).isoformat(),
-            time_span=str(end - start),
+            time_span=tstrip(end - start),
             repos=repos,
         )
 
