@@ -14,6 +14,14 @@ def _add_thread_info(_, __, event_dict):
     return event_dict
 
 
+def _filter_payloads(_, __, event_dict):
+    """Filter out very verbose fields unless level is debug or lower"""
+
+    if logger.getEffectiveLevel() > 10:
+        return {k: v for k, v in event_dict.items() if k not in ["payload", "json_payload", "raw", "raw_response"]}
+    return event_dict
+
+
 def setup_excellent_logging(level="INFO"):
     levels = ['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET']
 
@@ -27,9 +35,10 @@ def setup_excellent_logging(level="INFO"):
 
     timestamper = structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S")
     pre_chain = [
-        _add_thread_info,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
+        _add_thread_info,
+        _filter_payloads,
         timestamper,
     ]
 
