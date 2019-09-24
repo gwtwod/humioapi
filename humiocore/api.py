@@ -52,6 +52,10 @@ class HumioAPI:
         See also :func:`~humiocore.HumioAPI.streaming_search`
         """
 
+        logger.warning(
+            "Async search is deprecated and will be removed in the future. Try Streaming search as an alternative."
+        )
+
         headers = self.headers({"authorization": self.token})
         urls = [
             f"{self.base_url}/api/{self.api_version}/dataspaces/{repo}/query" for repo in repos
@@ -165,7 +169,6 @@ class HumioAPI:
 
                 for event in job.iter_lines(decode_unicode=True):
                     yield json.loads(event)
-
 
     def ingest_unstructured(self, events=None, fields=None, soft_limit=2 ** 20, dry=False):
         """

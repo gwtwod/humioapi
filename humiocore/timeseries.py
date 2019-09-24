@@ -222,7 +222,7 @@ class WindowedTimeseries:
                     new_data = list(self.api.streaming_search(self.query, self.repos, start, end))
 
                     if new_data:
-                        logger.info('Search returned new data', events=len(new_data))
+                        logger.info("Search returned new data", events=len(new_data))
                         data = humio_to_timeseries(
                             new_data,
                             timefield=self.timefield,
