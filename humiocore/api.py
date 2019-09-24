@@ -52,6 +52,10 @@ class HumioAPI:
         See also :func:`~humiocore.HumioAPI.streaming_search`
         """
 
+        logger.warning(
+            "Async search is deprecated and will be removed in the future. Try Streaming search as an alternative."
+        )
+
         headers = self.headers({"authorization": self.token})
         urls = [
             f"{self.base_url}/api/{self.api_version}/dataspaces/{repo}/query" for repo in repos
@@ -71,7 +75,7 @@ class HumioAPI:
 
                 if response.status >= 400:
                     text = await response.text()
-                    logger.exception(
+                    logger.error(
                         "Humio returned an error",
                         status=response.status,
                         reason=response.reason,
@@ -115,11 +119,14 @@ class HumioAPI:
         try:
             events = list(chain.from_iterable(loop.run_until_complete(future)))
             logger.info("All tasks completed", total_events=len(events))
-        except Exception as exc:
-            logger.exception("An exception occured while awaiting task completion", exception=exc)
-            loop.stop()
+        except KeyboardInterrupt:
+            pass
+        except aiohttp.client_exceptions.ClientResponseError:
+            logger.exception("An exception occured while awaiting task completion")
         finally:
-            loop.close()
+            tasks = [t for t in asyncio.Task.all_tasks() if t is not asyncio.Task.current_task()]
+            for task in tasks:
+                task.cancel()
         return events
 
     def streaming_search(self, query, repos, start, end, tz_offset=0, live=False, timeout=60):
@@ -162,8 +169,6 @@ class HumioAPI:
 
                 for event in job.iter_lines(decode_unicode=True):
                     yield json.loads(event)
-
-        logger.info("All steaming jobs ended")
 
     def ingest_unstructured(self, events=None, fields=None, soft_limit=2 ** 20, dry=False):
         """
