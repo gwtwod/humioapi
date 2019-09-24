@@ -179,9 +179,9 @@ class WindowedTimeseries:
             logger.debug(
                 "Calculated minimum required search range and found no missing buckets",
                 current_start=self.data.index.min(),
-                current_end=self.data.index.max(),
+                current_stop=self.data.index.max(),
                 wanted_start=wanted_buckets.min(),
-                wanted_end=wanted_buckets.max(),
+                wanted_stop=wanted_buckets.max(),
             )
             return None, None
 
@@ -192,11 +192,11 @@ class WindowedTimeseries:
         logger.debug(
             "Calculated minimum required search range",
             current_start=self.data.index.min(),
-            current_end=self.data.index.max(),
+            current_stop=self.data.index.max(),
             wanted_start=wanted_buckets.min(),
-            wanted_end=wanted_buckets.max(),
+            wanted_stop=wanted_buckets.max(),
             next_start=start,
-            next_end=end,
+            next_stop=end,
         )
         return start, end
 
@@ -222,6 +222,7 @@ class WindowedTimeseries:
                     new_data = list(self.api.streaming_search(self.query, self.repos, start, end))
 
                     if new_data:
+                        logger.info('Search returned new data', events=len(new_data))
                         data = humio_to_timeseries(
                             new_data,
                             timefield=self.timefield,
@@ -231,7 +232,7 @@ class WindowedTimeseries:
                         self.data = data.combine_first(self.data)
 
                     else:
-                        logger.error("Update failed.")
+                        logger.warn("Search didnt return any data")
                 else:
                     logger.info("Data is already current. Not fetching new data.")
 

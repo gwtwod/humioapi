@@ -24,9 +24,7 @@ def parse_ts(timestring):
     try:
         return snaptime.snap(pd.Timestamp.now(tz=tzlocal.get_localzone()), timestring)
     except snaptime.main.SnapParseError:
-        logger.debug(
-            "Could not parse the provided timestring with snaptime", timestring=timestring
-        )
+        pass
 
     try:
         timestamp = pd.to_datetime(timestring, utc=False)
@@ -35,19 +33,16 @@ def parse_ts(timestring):
         else:
             return timestamp.tz_localize(tz=tzlocal.get_localzone())
     except (ValueError, OverflowError):
-        logger.debug("Could not parse the provided timestring with pandas", timestring=timestring)
+        pass
 
     try:
         timestamp = pd.to_datetime(timestring, unit="ms", utc=True)
         return timestamp.tz_convert(tz=tzlocal.get_localzone())
     except (ValueError, pd.errors.OutOfBoundsDatetime):
-        logger.debug(
-            "Could not parse the provided timestring as a millisecond epoch",
-            timestring=timestring,
-        )
+        pass
 
     raise ValueError(
-        f"Could understand the provided timestring ({timestring}). Try something less ambigous?"
+        f"Could not understand the provided timestring ({timestring}). Try something less ambigous?"
     )
 
 
@@ -75,7 +70,7 @@ def humio_to_timeseries(
     """
 
     df = pd.DataFrame.from_records(events)
-    df = df.apply(pd.to_numeric, errors="ignore")
+    df = df.apply(pd.to_numeric, errors="coerce")
 
     df[timefield] = pd.to_datetime(df[timefield], unit="ms", utc=True)
     df = pd.pivot_table(df, index=timefield, values=datafields, columns=groupby, fill_value=fill)

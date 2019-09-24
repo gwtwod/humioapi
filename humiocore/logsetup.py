@@ -15,14 +15,11 @@ def _add_thread_info(_, __, event_dict):
 
 
 def _filter_payloads(_, __, event_dict):
-    """Filter out very verbose fields unless level is debug or lower"""
-
-    if logger.getEffectiveLevel() > 10:
-        return {k: v for k, v in event_dict.items() if k not in ["payload", "json_payload", "raw", "raw_response"]}
-    return event_dict
+    """Filter out known verbose fields"""
+    return {k: v for k, v in event_dict.items() if k not in ["payload", "json_payload", "raw", "raw_response"]}
 
 
-def setup_excellent_logging(level="INFO"):
+def setup_excellent_logging(level=logging.INFO, verbose_fields=True):
     levels = ['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET']
 
     if str(level).isdigit():
@@ -38,9 +35,11 @@ def setup_excellent_logging(level="INFO"):
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
         _add_thread_info,
-        _filter_payloads,
         timestamper,
     ]
+
+    if verbose_fields:
+        pre_chain.append(_filter_payloads)
 
     logging.config.dictConfig(
         {
@@ -57,12 +56,24 @@ def setup_excellent_logging(level="INFO"):
                 "console": {"class": "logging.StreamHandler", "formatter": "colored"}
             },
             "loggers": {
-                "": {"handlers": ["console"], "level": level, "propagate": True},
+                "": {
+                    "handlers": ["console"],
+                    "level": level,
+                    "propagate": True,
+                },
                 "parso": {
                     "handlers": ["console"],
-                    "level": "INFO",
+                    "level": logging.INFO,
                     "propagate": False,
                 },  # Bugfix for https://github.com/ipython/ipython/issues/10946
+                'requests.packages.urllib3': {
+                    'handlers': ['console'],
+                    'level': logging.WARNING,
+                },
+                'urllib3.connectionpool':  {
+                    'handlers': ['console'],
+                    'level': logging.WARNING,
+                }
             },
         }
     )
@@ -87,7 +98,8 @@ def setup_excellent_logging(level="INFO"):
     )
 
     def logwrap_exception(exc_type, exc_value, exc_traceback):
-        """Causes all uncaught exceptions to be logged through structlog.
+        """
+        Causes all uncaught exceptions to be logged through structlog.
         The real origin/logger will not be available, so the traceback is
         necessary to find the actual cause of the error.
         """
@@ -97,9 +109,9 @@ def setup_excellent_logging(level="INFO"):
             sys.__excepthook__(exc_type, exc_value, exc_traceback)
             return
 
-        logger.exception(
+        logger.critical(
             "Uncaught exception",
-            payload=str(exc_value),
+            payload=repr(exc_value),
             exc_info=(exc_type, exc_value, exc_traceback),
         )
 
