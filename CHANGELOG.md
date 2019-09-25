@@ -4,6 +4,18 @@
 
 ### Added
 
+### Changed
+
+- The repositories API function will now return views as well
+
+### Deprecated
+
+### Removed
+
+## [0.2.0] - 2019-09-24
+
+### Added
+
 - A Changelog! :)
 
 ### Changed

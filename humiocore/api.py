@@ -135,8 +135,6 @@ class HumioAPI:
 
         Yields:
             dict: The event fields
-
-        See also :func:`~humiocore.HumioAPI.async_search`
         """
 
         headers = self.headers({"authorization": self.token, "accept": "application/x-ndjson"})
@@ -231,34 +229,40 @@ class HumioAPI:
 
     def repositories(self, ignore="(-qa|-test)$"):
         """
-        Returns a dictionary of repositories except those with names matching
-        the ignore pattern
+        Returns a dictionary of repositories and views, except those with
+        names matching the ignore pattern
         """
 
         headers = self.headers({"authorization": self.token})
         url = f"{self.base_url}/graphql"
         query = """
                 query {
-                    repositories {
-                        __typename uncompressedByteSize timeOfLatestIngest name isStarred
-                        permissions {
-                            administerAlerts administerDashboards
-                            administerFiles administerMembers
-                            administerParsers administerQueries
-                            read write
+                    searchDomains {
+                        name, isStarred
+                        __typename
+                        ... on Repository {
+                            uncompressedByteSize, timeOfLatestIngest
                         }
-                        roles { role { name } }
+                        permissions {
+                            administerAlerts, administerDashboards,  administerFiles,
+                            administerMembers, administerParsers, administerQueries, read, write
+                        }
+                        roles {
+                            role {
+                                name
+                            }
+                        }
                     }
                 }"""
         req = requests.post(url, json={"query": query}, headers=headers)
         detailed_raise_for_status(req)
 
         if not req.json():
-            logger.error("No repositories found, verify that your token is valid")
+            logger.error("No repositories or views found, verify that your token is valid")
 
         raw_repositories = [
             raw_repo
-            for raw_repo in req.json()["data"]["repositories"]
+            for raw_repo in req.json()["data"]["searchDomains"]
             if not re.search(ignore, raw_repo["name"])
         ]
 
@@ -285,7 +289,9 @@ class HumioAPI:
                 }
             except (KeyError, AttributeError) as exc:
                 logger.exception(
-                    "Couldn't map repository object", repo=repo.get("name"), error_message=exc
+                    "Couldn't map repository/view object",
+                    repo=repo.get("name"),
+                    error_message=exc,
                 )
         return repositories
 
