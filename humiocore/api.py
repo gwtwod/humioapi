@@ -129,9 +129,24 @@ class HumioAPI:
                 task.cancel()
         return events
 
-    def streaming_search(self, query, repos, start, end, tz_offset=0, live=False, timeout=60):
+    def streaming_search(self, query, repos, start=None, end=None, tz_offset=0, timeout=60):
         """
         Execute syncronous streaming queries for all the requested repositories.
+
+        Parameters
+        ----------
+        query : string
+            The query string to execute against each repository
+        repos : list
+            List of repository names (strings) to query
+        start : pd.Timestamp, optional
+            Pandas tz-aware Timestamp to start searches from. Default None meaning all time
+        end : pd.Timestamp, optional
+            Pandas tz-aware Timestamp to search until. Default None meaning now
+        tz_offset : int, optional
+            Timezone offset in minutes, see Humio documentation. By default 0
+        timeout : int, optional
+            Timeout in seconds for HTTP requests before giving up. By default 60
 
         Yields:
             dict: The event fields
@@ -142,20 +157,27 @@ class HumioAPI:
             f"{self.base_url}/api/{self.api_version}/dataspaces/{repo}/query" for repo in repos
         ]
 
+        search_details = {}
         payload = {
             "queryString": query,
-            "isLive": live,
+            "isLive": False,
             "timeZoneOffsetMinutes": tz_offset,
-            "start": int(start.timestamp() * 1000),
-            "end": int(end.timestamp() * 1000),
         }
+
+        if start:
+            payload["start"] = int(start.timestamp() * 1000)
+            search_details["time_start"] = start.tz_convert(tzlocal.get_localzone()).isoformat()
+        if end:
+            payload["end"] = int(end.timestamp() * 1000)
+            search_details["time_stop"] = end.tz_convert(tzlocal.get_localzone()).isoformat()
+        if start and end:
+            search_details["time_span"] = tstrip(end - start)
+
         logger.info(
             "Creating new streaming jobs",
             json_payload=(json.dumps(payload)),
-            time_start=start.tz_convert(tzlocal.get_localzone()).isoformat(),
-            time_stop=end.tz_convert(tzlocal.get_localzone()).isoformat(),
-            time_span=tstrip(end - start),
             repos=repos,
+            **search_details
         )
 
         with requests.Session() as session:

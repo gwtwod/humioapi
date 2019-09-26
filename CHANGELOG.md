@@ -8,6 +8,9 @@
 
 - The repositories API function will now return views as well
 - Removed filtering logic from repositories API
+- Signature of streaming_search() changed.
+  - Live option has been removed since it should be a separate API. Humio only allows their internal "relative time" strings for live searches.
+  - Start and End are now optional
 
 ### Deprecated
 
