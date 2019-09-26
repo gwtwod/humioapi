@@ -158,11 +158,7 @@ class HumioAPI:
         ]
 
         search_details = {}
-        payload = {
-            "queryString": query,
-            "isLive": False,
-            "timeZoneOffsetMinutes": tz_offset,
-        }
+        payload = {"queryString": query, "isLive": False, "timeZoneOffsetMinutes": tz_offset}
 
         if start:
             payload["start"] = int(start.timestamp() * 1000)
@@ -177,7 +173,7 @@ class HumioAPI:
             "Creating new streaming jobs",
             json_payload=(json.dumps(payload)),
             repos=repos,
-            **search_details
+            **search_details,
         )
 
         with requests.Session() as session:

@@ -4,7 +4,7 @@ Humiocore
 
 An unofficial library for interacting with the Humio API
 
-For convenience your humio url and token should be set in the environment variables ``HUMIO_BASE_URL`` and ``HUMIO_TOKEN``. These can be set in ``~/.config/humio/.env`` and loaded by ``humiocore.loadenv()``.
+For convenience your Humio URL and token should be set in the environment variables ``HUMIO_BASE_URL`` and ``HUMIO_TOKEN``. These can be set in ``~/.config/humio/.env`` and loaded by ``humiocore.loadenv()``.
 
 Create an instance of HumioAPI to get started
 
