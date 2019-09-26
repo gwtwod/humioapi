@@ -4,7 +4,7 @@ Humiocore
 
 An unofficial library for interacting with the Humio API
 
-For convenience your humio url and token should be set in the environment variables ``HUMIO_BASE_URL`` and ``HUMIO_TOKEN``. These can be set in ``~/.config/humio/.env`` and loaded by ``humiocore.loadenv()``.
+For convenience your Humio URL and token should be set in the environment variables ``HUMIO_BASE_URL`` and ``HUMIO_TOKEN``. These can be set in ``~/.config/humio/.env`` and loaded by ``humiocore.loadenv()``.
 
 Create an instance of HumioAPI to get started
 
@@ -26,11 +26,6 @@ Jupyter Notebook
    pip install git+https://github.com/gwtwod/py3humiocore.git
    pip install ipykernel seaborn matplotlib
    python -m ipykernel install --user --name 'python36-humiocore' --display-name 'Python 3.6 (venv humiocore)'
-
-
-..
-
-   Jupyter doesn't play nice with asyncio, so use streaming_search() instead of async_search()
 
 
 Exit the virtual environment and run ``pipsi install notebook`` if you

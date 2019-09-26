@@ -1,6 +1,22 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.0] - 2019-09-26
+
+### Added
+
+### Changed
+
+- The repositories API function will now return views as well
+- Removed filtering logic from repositories API
+- Signature of streaming_search() changed.
+  - Live option has been removed since it should be a separate API. Humio only allows their internal "relative time" strings for live searches.
+  - Start and End are now optional
+
+### Deprecated
+
+### Removed
+
+## [0.2.0] - 2019-09-24
 
 ### Added
 

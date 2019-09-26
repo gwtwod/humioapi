@@ -129,14 +129,27 @@ class HumioAPI:
                 task.cancel()
         return events
 
-    def streaming_search(self, query, repos, start, end, tz_offset=0, live=False, timeout=60):
+    def streaming_search(self, query, repos, start=None, end=None, tz_offset=0, timeout=60):
         """
         Execute syncronous streaming queries for all the requested repositories.
 
+        Parameters
+        ----------
+        query : string
+            The query string to execute against each repository
+        repos : list
+            List of repository names (strings) to query
+        start : pd.Timestamp, optional
+            Pandas tz-aware Timestamp to start searches from. Default None meaning all time
+        end : pd.Timestamp, optional
+            Pandas tz-aware Timestamp to search until. Default None meaning now
+        tz_offset : int, optional
+            Timezone offset in minutes, see Humio documentation. By default 0
+        timeout : int, optional
+            Timeout in seconds for HTTP requests before giving up. By default 60
+
         Yields:
             dict: The event fields
-
-        See also :func:`~humiocore.HumioAPI.async_search`
         """
 
         headers = self.headers({"authorization": self.token, "accept": "application/x-ndjson"})
@@ -144,20 +157,23 @@ class HumioAPI:
             f"{self.base_url}/api/{self.api_version}/dataspaces/{repo}/query" for repo in repos
         ]
 
-        payload = {
-            "queryString": query,
-            "isLive": live,
-            "timeZoneOffsetMinutes": tz_offset,
-            "start": int(start.timestamp() * 1000),
-            "end": int(end.timestamp() * 1000),
-        }
+        search_details = {}
+        payload = {"queryString": query, "isLive": False, "timeZoneOffsetMinutes": tz_offset}
+
+        if start:
+            payload["start"] = int(start.timestamp() * 1000)
+            search_details["time_start"] = start.tz_convert(tzlocal.get_localzone()).isoformat()
+        if end:
+            payload["end"] = int(end.timestamp() * 1000)
+            search_details["time_stop"] = end.tz_convert(tzlocal.get_localzone()).isoformat()
+        if start and end:
+            search_details["time_span"] = tstrip(end - start)
+
         logger.info(
             "Creating new streaming jobs",
             json_payload=(json.dumps(payload)),
-            time_start=start.tz_convert(tzlocal.get_localzone()).isoformat(),
-            time_stop=end.tz_convert(tzlocal.get_localzone()).isoformat(),
-            time_span=tstrip(end - start),
             repos=repos,
+            **search_details,
         )
 
         with requests.Session() as session:
@@ -229,38 +245,40 @@ class HumioAPI:
 
         logger.info("All ingestions complete")
 
-    def repositories(self, ignore="(-qa|-test)$"):
+    def repositories(self):
         """
-        Returns a dictionary of repositories except those with names matching
-        the ignore pattern
+        Returns a dictionary of repositories and views, except those with
+        names matching the ignore pattern
         """
 
         headers = self.headers({"authorization": self.token})
         url = f"{self.base_url}/graphql"
         query = """
                 query {
-                    repositories {
-                        __typename uncompressedByteSize timeOfLatestIngest name isStarred
-                        permissions {
-                            administerAlerts administerDashboards
-                            administerFiles administerMembers
-                            administerParsers administerQueries
-                            read write
+                    searchDomains {
+                        name, isStarred
+                        __typename
+                        ... on Repository {
+                            uncompressedByteSize, timeOfLatestIngest
                         }
-                        roles { role { name } }
+                        permissions {
+                            administerAlerts, administerDashboards,  administerFiles,
+                            administerMembers, administerParsers, administerQueries, read, write
+                        }
+                        roles {
+                            role {
+                                name
+                            }
+                        }
                     }
                 }"""
         req = requests.post(url, json={"query": query}, headers=headers)
         detailed_raise_for_status(req)
 
         if not req.json():
-            logger.error("No repositories found, verify that your token is valid")
+            logger.error("No repositories or views found, verify that your token is valid")
 
-        raw_repositories = [
-            raw_repo
-            for raw_repo in req.json()["data"]["repositories"]
-            if not re.search(ignore, raw_repo["name"])
-        ]
+        raw_repositories = [raw_repo for raw_repo in req.json()["data"]["searchDomains"]]
 
         repositories = dict()
         for repo in raw_repositories:
@@ -285,7 +303,9 @@ class HumioAPI:
                 }
             except (KeyError, AttributeError) as exc:
                 logger.exception(
-                    "Couldn't map repository object", repo=repo.get("name"), error_message=exc
+                    "Couldn't map repository/view object",
+                    repo=repo.get("name"),
+                    error_message=exc,
                 )
         return repositories
 
