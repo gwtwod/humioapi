@@ -7,6 +7,7 @@
 ### Changed
 
 - The repositories API function will now return views as well
+- Removed filtering logic from repositories API
 
 ### Deprecated
 

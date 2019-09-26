@@ -19,8 +19,6 @@ Create an instance of HumioAPI to get started
     pip install ipykernel seaborn matplotlib
     python -m ipykernel install --user --name 'python36-humiocore' --display-name 'Python 3.6 (venv humiocore)'
 
-> Jupyter doesn't play nice with asyncio, so use streaming_search() instead of async_search()
-
 Exit the virtual environment and run `pipsi install notebook` if you
 haven't already. Start the notebook by running `jupyter-notebook` and choose the
 newly created kernel when creating a new notebook.

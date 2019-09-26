@@ -227,7 +227,7 @@ class HumioAPI:
 
         logger.info("All ingestions complete")
 
-    def repositories(self, ignore="(-qa|-test)$"):
+    def repositories(self):
         """
         Returns a dictionary of repositories and views, except those with
         names matching the ignore pattern
@@ -260,11 +260,7 @@ class HumioAPI:
         if not req.json():
             logger.error("No repositories or views found, verify that your token is valid")
 
-        raw_repositories = [
-            raw_repo
-            for raw_repo in req.json()["data"]["searchDomains"]
-            if not re.search(ignore, raw_repo["name"])
-        ]
+        raw_repositories = [raw_repo for raw_repo in req.json()["data"]["searchDomains"]]
 
         repositories = dict()
         for repo in raw_repositories:
