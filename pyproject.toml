@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "humiocore"
-version = "0.3.0"
+version = "0.4.0"
 description = "A python library for for interacting with the Humio API"
 authors = ["Jostein Haukeli"]
 repository = "https://github.com/gwtwod/py3humiocore"
@@ -20,9 +20,9 @@ structlog-pretty = "^0.1.1"
 colorama = "^0.4.1"
 pandas = "^0.24.1"
 tzlocal = "^1.5"
-aiohttp = "^3.5"
 chardet = "^3.0"
 python-dotenv = "^0.10.2"
+tqdm = "^4.39.0"
 
 [tool.poetry.dev-dependencies]
 black = { version = "*", allows-prereleases = true }

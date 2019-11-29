@@ -2,16 +2,16 @@
 This module implements an API object for interacting with the Humio API
 """
 
-import asyncio
 import json
 import re
+import time
 from itertools import chain
 
-import aiohttp
 import pandas as pd
 import requests
 import structlog
 import tzlocal
+from tqdm import tqdm
 
 from .utils import detailed_raise_for_status, tstrip
 
@@ -41,93 +41,144 @@ class HumioAPI:
             headers["authorization"] = "Bearer " + headers["authorization"]
         return headers
 
-    def async_search(self, query, repos, start, end, tz_offset=0, timeout=60, limit=10):
+    def create_queryjob(
+        self,
+        query,
+        repo,
+        start=None,
+        end=None,
+        live=False,
+        tz_offset=0,
+        timeout=30,
+        literal_time=False,
+    ):
         """
-        Execute queries async for all the requested repositories.
+        Creates a remote queryjob and returns its job ID.
 
-        Returns:
-            list: The events as a list of dicts with the event fields
+        NOTE: Queryjobs can return at most 200 results for filter searches
+              and 1500 results for aggregated searches (unless you're sneaky
+              and add a `tail(10000)`).
 
-        Holds all results in memory, so should not be used for very large results.
-        See also :func:`~humiocore.HumioAPI.streaming_search`
+        Parameters
+        ----------
+        query : string
+            The query string to execute
+        repo : string
+            A repository or view name
+        start : pd.Timestamp (or any valid Humio format if literal_time=True), optional
+            Pandas tz-aware Timestamp to start searches from. Default None meaning all time
+        end : pd.Timestamp (or any valid Humio format if literal_time=True), optional
+            Pandas tz-aware Timestamp to search until. Default None meaning now
+        tz_offset : int, optional
+            Timezone offset in minutes, see Humio documentation. By default 0
+        timeout : int, optional
+            Timeout in seconds for HTTP requests before giving up. By default 30
+        literal_time : bool, optional
+            If True, disable all parsing of the provided start and end times, by default False
+
+        Returns
+        -------
+        dict
+            A dictionary with a job id and other metadata
         """
 
-        logger.warning(
-            "Async search is deprecated and will be removed in the future. Try Streaming search as an alternative."
+        headers = self.headers({"authorization": self.token, "accept": "application/json"})
+        url = f"{self.base_url}/api/{self.api_version}/repositories/{repo}/queryjobs"
+
+        search_details = {}
+        payload = {"queryString": query, "isLive": live, "timeZoneOffsetMinutes": tz_offset}
+
+        if live:
+            end = None
+
+        if literal_time:
+            if start:
+                payload["start"] = start
+                search_details["time_start"] = start
+            if end:
+                payload["end"] = end
+                search_details["time_stop"] = end
+        else:
+            if start:
+                payload["start"] = int(start.timestamp() * 1000)
+                search_details["time_start"] = start.tz_convert(
+                    tzlocal.get_localzone()
+                ).isoformat()
+            if end:
+                payload["end"] = int(end.timestamp() * 1000)
+                search_details["time_stop"] = end.tz_convert(tzlocal.get_localzone()).isoformat()
+            if start and end and not literal_time:
+                search_details["time_span"] = tstrip(end - start)
+
+        logger.info(
+            "Creating new queryjob",
+            json_payload=(json.dumps(payload)),
+            repo=repo,
+            **search_details,
         )
 
-        headers = self.headers({"authorization": self.token})
-        urls = [
-            f"{self.base_url}/api/{self.api_version}/dataspaces/{repo}/query" for repo in repos
-        ]
+        queryjob = requests.post(url, json=payload, headers=headers, timeout=timeout)
+        detailed_raise_for_status(queryjob)
+        return queryjob.json()
 
-        payload = {
-            "queryString": query,
-            "isLive": False,
-            "timeZoneOffsetMinutes": tz_offset,
-            "start": int(start.timestamp() * 1000),
-            "end": int(end.timestamp() * 1000),
-        }
+    def consume_queryjob(self, repo, job_id, timeout=30, minwait=0.1, quiet=True):
+        """
+        Checks an existing remote queryjob continously and returns all its
+        properties on completion.
 
-        async def fetch(session, url, headers, payload):
-            async with session.post(url, headers=headers, json=payload) as response:
-                logger.info("Sent POST request", url=url)
+        NOTE: Queryjobs can return at most 200 results for filter searches
+              and 1500 results for aggregated searches (unless you're sneaky
+              and add a `tail(10000)`).
 
-                if response.status >= 400:
-                    text = await response.text()
-                    logger.error(
-                        "Humio returned an error",
-                        status=response.status,
-                        reason=response.reason,
-                        response_body=text,
-                    )
-                    response.raise_for_status()
+        Returns:
+            dict: The job's complete JSON structure with events and metadata
+        """
 
-                data = await response.json(encoding=response.get_encoding())
-                logger.info(
-                    "Received POST response",
-                    events=len(data),
-                    status=response.status,
-                    content_type=response.content_type,
-                    encoding=response.get_encoding(),
-                    url_path=response.url.path,
-                )
-                return data
+        job = self.check_queryjob(repo, job_id)
+        done = job["done"]
 
-        async def dispatch(urls, headers, payload, connector):
-            async with aiohttp.ClientSession(connector=connector) as session:
-                logger.debug("Established new client session")
+        with tqdm(total=job["metaData"]["totalWork"], leave=True, disable=quiet) as bar:
+            while not done:
+                wait = float(job["metaData"]["pollAfter"]) / 1000
+                if wait < minwait:
+                    wait = minwait
+                time.sleep(wait)
 
-                tasks = []
-                for url in urls:
-                    tasks.append(asyncio.ensure_future(fetch(session, url, headers, payload)))
-                logger.info(
-                    "Registered all task",
-                    json_payload=(json.dumps(payload)),
-                    tasks=len(tasks),
-                    time_start=start.tz_convert(tzlocal.get_localzone()).isoformat(),
-                    time_stop=end.tz_convert(tzlocal.get_localzone()).isoformat(),
-                    time_span=tstrip(end - start),
-                    repos=repos,
-                )
-                return await asyncio.gather(*tasks)
+                job = self.check_queryjob(repo, job_id, timeout=timeout)
+                done = job["done"]
+                bar.update(job["metaData"]["workDone"] - bar.n)
+            bar.update(bar.n)
+            bar.close()
+        logger.debug("Queryjob completed", meta=json.dumps(job["metaData"]))
+        return job
 
-        connector = aiohttp.TCPConnector(limit=limit)
-        loop = asyncio.get_event_loop()
-        future = asyncio.ensure_future(dispatch(urls, headers, payload, connector=connector))
-        events = []
-        try:
-            events = list(chain.from_iterable(loop.run_until_complete(future)))
-            logger.info("All tasks completed", total_events=len(events))
-        except KeyboardInterrupt:
-            pass
-        except aiohttp.client_exceptions.ClientResponseError:
-            logger.exception("An exception occured while awaiting task completion")
-        finally:
-            tasks = [t for t in asyncio.Task.all_tasks() if t is not asyncio.Task.current_task()]
-            for task in tasks:
-                task.cancel()
-        return events
+    def check_queryjob(self, repo, job_id, timeout=30):
+        """Checks a remote queryjob once
+
+        Returns:
+            dict: The job's JSON metadata
+        """
+
+        headers = self.headers({"authorization": self.token, "accept": "application/json"})
+        url = f"{self.base_url}/api/{self.api_version}/repositories/{repo}/queryjobs/{job_id}"
+
+        job = requests.get(url, headers=headers, timeout=timeout)
+        detailed_raise_for_status(job)
+        return job.json()
+
+    def delete_queryjob(self, repo, job_id):
+        """Stops and deletes a remote queryjob
+
+        Returns:
+            str: The returned status code
+        """
+
+        headers = self.headers({"authorization": self.token, "accept": "application/json"})
+        url = f"{self.base_url}/api/{self.api_version}/repositories/{repo}/queryjobs/{job_id}"
+
+        job = requests.delete(url, headers=headers)
+        detailed_raise_for_status(job)
+        return job.status_code
 
     def streaming_search(self, query, repos, start=None, end=None, tz_offset=0, timeout=60):
         """
@@ -154,7 +205,7 @@ class HumioAPI:
 
         headers = self.headers({"authorization": self.token, "accept": "application/x-ndjson"})
         urls = [
-            f"{self.base_url}/api/{self.api_version}/dataspaces/{repo}/query" for repo in repos
+            f"{self.base_url}/api/{self.api_version}/repositories/{repo}/query" for repo in repos
         ]
 
         search_details = {}

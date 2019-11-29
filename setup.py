@@ -21,7 +21,7 @@ if os.path.exists(readme_path):
 setup(
     long_description=readme,
     name='humiocore',
-    version='0.3.0',
+    version='0.4.0',
     description='A python library for for interacting with the Humio API',
     python_requires='==3.*,>=3.6.0',
     project_urls={'repository': 'https://github.com/gwtwod/py3humiocore'},
@@ -29,11 +29,11 @@ setup(
     packages=['humiocore'],
     package_data={},
     install_requires=[
-        'aiohttp==3.*,>=3.5.0', 'chardet==3.*,>=3.0.0', 'colorama==0.*,>=0.4.1',
-        'pandas==0.*,>=0.24.1', 'python-dotenv==0.*,>=0.10.2',
-        'pytz==2018.*,>=2018.9.0', 'requests==2.*,>=2.21.0',
-        'snaptime==0.*,>=0.2.4', 'structlog==19.*,>=19.1.0',
-        'structlog-pretty==0.*,>=0.1.1', 'tzlocal==1.*,>=1.5.0'
+        'chardet==3.*,>=3.0.0', 'colorama==0.*,>=0.4.1', 'pandas==0.*,>=0.24.1',
+        'python-dotenv==0.*,>=0.10.2', 'pytz==2018.*,>=2018.9.0',
+        'requests==2.*,>=2.21.0', 'snaptime==0.*,>=0.2.4',
+        'structlog==19.*,>=19.1.0', 'structlog-pretty==0.*,>=0.1.1',
+        'tqdm==4.*,>=4.39.0', 'tzlocal==1.*,>=1.5.0'
     ],
     extras_require={
         'dev': ['black', 'pre-commit==1.*,>=1.18.3', 'pylint==2.*,>=2.3.0']

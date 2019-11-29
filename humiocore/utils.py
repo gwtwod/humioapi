@@ -56,9 +56,12 @@ def detailed_raise_for_status(res):
         res.raise_for_status()
     except HTTPError as err:
         if hasattr(res, "text") and res.text:
-            # Raise <exception> from None means we don't get the extra context from raising
-            # a new exception inside the try-except block
-            raise HTTPError(f"{err}. Response body: {str(res.text)}") from None
+            cutoff = 400
+            details = f"Response body: {str(res.text)}"
+            details = (details[:cutoff] + "..") if len(details) > cutoff else details
+            # Raise <exception> from None means we don't get the extra context clutter
+            # from raising a new exception inside the try-except block
+            raise HTTPError(f"{err}. {details}", response=res) from None
         else:
             raise err
 
