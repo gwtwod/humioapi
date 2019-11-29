@@ -1,5 +1,8 @@
 """
-This module provides helper objects to manage searches
+This module provides a helper object to manage an updateable timechart search
+through the export API which doesn't support aggregated live searches.
+
+NOTE: IF you stumbled upon this, know that this is pretty much just a POC/playground.
 """
 
 import json

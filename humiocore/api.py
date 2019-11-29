@@ -5,6 +5,7 @@ This module implements an API object for interacting with the Humio API
 import asyncio
 import json
 import re
+import time
 from itertools import chain
 
 import aiohttp
@@ -12,6 +13,7 @@ import pandas as pd
 import requests
 import structlog
 import tzlocal
+from tqdm import tqdm
 
 from .utils import detailed_raise_for_status, tstrip
 
@@ -40,6 +42,145 @@ class HumioAPI:
         elif not headers["authorization"].startswith("Bearer"):
             headers["authorization"] = "Bearer " + headers["authorization"]
         return headers
+
+    def create_queryjob(
+        self,
+        query,
+        repo,
+        start=None,
+        end=None,
+        live=False,
+        tz_offset=0,
+        timeout=30,
+        literal_time=False,
+    ):
+        """
+        Creates a remote queryjob and returns its job ID.
+
+        NOTE: Queryjobs can return at most 200 results for filter searches
+              and 1500 results for aggregated searches (unless you're sneaky
+              and add a `tail(10000)`).
+
+        Parameters
+        ----------
+        query : string
+            The query string to execute
+        repo : string
+            A repository or view name
+        start : pd.Timestamp (or any valid Humio format if literal_time=True), optional
+            Pandas tz-aware Timestamp to start searches from. Default None meaning all time
+        end : pd.Timestamp (or any valid Humio format if literal_time=True), optional
+            Pandas tz-aware Timestamp to search until. Default None meaning now
+        tz_offset : int, optional
+            Timezone offset in minutes, see Humio documentation. By default 0
+        timeout : int, optional
+            Timeout in seconds for HTTP requests before giving up. By default 30
+        literal_time : bool, optional
+            If True, disable all parsing of the provided start and end times, by default False
+
+        Returns
+        -------
+        dict
+            A dictionary with a job id and other metadata
+        """
+
+        headers = self.headers({"authorization": self.token, "accept": "application/json"})
+        url = f"{self.base_url}/api/{self.api_version}/repositories/{repo}/queryjobs"
+
+        search_details = {}
+        payload = {"queryString": query, "isLive": live, "timeZoneOffsetMinutes": tz_offset}
+
+        if live:
+            end = None
+
+        if literal_time:
+            if start:
+                payload["start"] = start
+                search_details["time_start"] = start
+            if end:
+                payload["end"] = end
+                search_details["time_stop"] = end
+        else:
+            if start:
+                payload["start"] = int(start.timestamp() * 1000)
+                search_details["time_start"] = start.tz_convert(
+                    tzlocal.get_localzone()
+                ).isoformat()
+            if end:
+                payload["end"] = int(end.timestamp() * 1000)
+                search_details["time_stop"] = end.tz_convert(tzlocal.get_localzone()).isoformat()
+            if start and end and not literal_time:
+                search_details["time_span"] = tstrip(end - start)
+
+        logger.info(
+            "Creating new queryjob",
+            json_payload=(json.dumps(payload)),
+            repo=repo,
+            **search_details,
+        )
+
+        queryjob = requests.post(url, json=payload, headers=headers, timeout=timeout)
+        detailed_raise_for_status(queryjob)
+        return queryjob.json()
+
+    def consume_queryjob(self, repo, job_id, timeout=30, minwait=0.1, quiet=True):
+        """
+        Checks an existing remote queryjob continously and returns all its
+        properties on completion.
+
+        NOTE: Queryjobs can return at most 200 results for filter searches
+              and 1500 results for aggregated searches (unless you're sneaky
+              and add a `tail(10000)`).
+
+        Returns:
+            dict: The job's complete JSON structure with events and metadata
+        """
+
+        job = self.check_queryjob(repo, job_id)
+        done = job["done"]
+
+        with tqdm(total=job["metaData"]["totalWork"], leave=True, disable=quiet) as bar:
+            while not done:
+                wait = float(job["metaData"]["pollAfter"]) / 1000
+                if wait < minwait:
+                    wait = minwait
+                time.sleep(wait)
+
+                job = self.check_queryjob(repo, job_id, timeout=timeout)
+                done = job["done"]
+                bar.update(job["metaData"]["workDone"] - bar.n)
+            bar.update(bar.n)
+            bar.close()
+        logger.debug("Queryjob completed", meta=json.dumps(job["metaData"]))
+        return job
+
+    def check_queryjob(self, repo, job_id, timeout=30):
+        """Checks a remote queryjob once
+
+        Returns:
+            dict: The job's JSON metadata
+        """
+
+        headers = self.headers({"authorization": self.token, "accept": "application/json"})
+        url = f"{self.base_url}/api/{self.api_version}/repositories/{repo}/queryjobs/{job_id}"
+
+        job = requests.get(url, headers=headers, timeout=timeout)
+        detailed_raise_for_status(job)
+        return job.json()
+
+    def delete_queryjob(self, repo, job_id):
+        """Stops and deletes a remote queryjob
+
+        Returns:
+            str: The returned status code
+        """
+
+        headers = self.headers({"authorization": self.token, "accept": "application/json"})
+        url = f"{self.base_url}/api/{self.api_version}/repositories/{repo}/queryjobs/{job_id}"
+
+        job = requests.delete(url, headers=headers)
+        detailed_raise_for_status(job)
+        return job.status_code
 
     def async_search(self, query, repos, start, end, tz_offset=0, timeout=60, limit=10):
         """
@@ -154,7 +295,7 @@ class HumioAPI:
 
         headers = self.headers({"authorization": self.token, "accept": "application/x-ndjson"})
         urls = [
-            f"{self.base_url}/api/{self.api_version}/dataspaces/{repo}/query" for repo in repos
+            f"{self.base_url}/api/{self.api_version}/repositories/{repo}/query" for repo in repos
         ]
 
         search_details = {}
