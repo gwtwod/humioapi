@@ -2,13 +2,11 @@
 This module implements an API object for interacting with the Humio API
 """
 
-import asyncio
 import json
 import re
 import time
 from itertools import chain
 
-import aiohttp
 import pandas as pd
 import requests
 import structlog
@@ -181,94 +179,6 @@ class HumioAPI:
         job = requests.delete(url, headers=headers)
         detailed_raise_for_status(job)
         return job.status_code
-
-    def async_search(self, query, repos, start, end, tz_offset=0, timeout=60, limit=10):
-        """
-        Execute queries async for all the requested repositories.
-
-        Returns:
-            list: The events as a list of dicts with the event fields
-
-        Holds all results in memory, so should not be used for very large results.
-        See also :func:`~humiocore.HumioAPI.streaming_search`
-        """
-
-        logger.warning(
-            "Async search is deprecated and will be removed in the future. Try Streaming search as an alternative."
-        )
-
-        headers = self.headers({"authorization": self.token})
-        urls = [
-            f"{self.base_url}/api/{self.api_version}/dataspaces/{repo}/query" for repo in repos
-        ]
-
-        payload = {
-            "queryString": query,
-            "isLive": False,
-            "timeZoneOffsetMinutes": tz_offset,
-            "start": int(start.timestamp() * 1000),
-            "end": int(end.timestamp() * 1000),
-        }
-
-        async def fetch(session, url, headers, payload):
-            async with session.post(url, headers=headers, json=payload) as response:
-                logger.info("Sent POST request", url=url)
-
-                if response.status >= 400:
-                    text = await response.text()
-                    logger.error(
-                        "Humio returned an error",
-                        status=response.status,
-                        reason=response.reason,
-                        response_body=text,
-                    )
-                    response.raise_for_status()
-
-                data = await response.json(encoding=response.get_encoding())
-                logger.info(
-                    "Received POST response",
-                    events=len(data),
-                    status=response.status,
-                    content_type=response.content_type,
-                    encoding=response.get_encoding(),
-                    url_path=response.url.path,
-                )
-                return data
-
-        async def dispatch(urls, headers, payload, connector):
-            async with aiohttp.ClientSession(connector=connector) as session:
-                logger.debug("Established new client session")
-
-                tasks = []
-                for url in urls:
-                    tasks.append(asyncio.ensure_future(fetch(session, url, headers, payload)))
-                logger.info(
-                    "Registered all task",
-                    json_payload=(json.dumps(payload)),
-                    tasks=len(tasks),
-                    time_start=start.tz_convert(tzlocal.get_localzone()).isoformat(),
-                    time_stop=end.tz_convert(tzlocal.get_localzone()).isoformat(),
-                    time_span=tstrip(end - start),
-                    repos=repos,
-                )
-                return await asyncio.gather(*tasks)
-
-        connector = aiohttp.TCPConnector(limit=limit)
-        loop = asyncio.get_event_loop()
-        future = asyncio.ensure_future(dispatch(urls, headers, payload, connector=connector))
-        events = []
-        try:
-            events = list(chain.from_iterable(loop.run_until_complete(future)))
-            logger.info("All tasks completed", total_events=len(events))
-        except KeyboardInterrupt:
-            pass
-        except aiohttp.client_exceptions.ClientResponseError:
-            logger.exception("An exception occured while awaiting task completion")
-        finally:
-            tasks = [t for t in asyncio.Task.all_tasks() if t is not asyncio.Task.current_task()]
-            for task in tasks:
-                task.cancel()
-        return events
 
     def streaming_search(self, query, repos, start=None, end=None, tz_offset=0, timeout=60):
         """
