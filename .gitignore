@@ -194,3 +194,7 @@ pyvenv.cfg
 pip-selfcheck.json
 .pytest_cache/
 *.csv
+
+*.meta
+*.pkl
+*.ipynb
