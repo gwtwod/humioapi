@@ -38,7 +38,7 @@ def setup_excellent_logging(level=logging.INFO, verbose_fields=True):
         timestamper,
     ]
 
-    if verbose_fields:
+    if not verbose_fields:
         pre_chain.append(_filter_payloads)
 
     logging.config.dictConfig(
