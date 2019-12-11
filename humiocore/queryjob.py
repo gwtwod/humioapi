@@ -57,9 +57,9 @@ class QueryJob:
         self.live = live
         self.literal_time = literal_time
         self.job_id = job_id
-        self.events = None
-        self.metadata = None
-        self.warnings = None
+        self.events = []
+        self.metadata = {}
+        self.warnings = []
 
     def __str__(self):
         return json.dumps(

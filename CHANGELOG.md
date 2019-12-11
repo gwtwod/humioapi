@@ -8,6 +8,8 @@
 
 ### Fixed
 
+- Better defaults in humiocore.QueryJob
+
 ### Deprecated
 
 ### Removed
