@@ -15,6 +15,4 @@ def loadenv(env=None, prefix="HUMIO_"):
         env = Path.home() / ".config/humio/.env"
     load_dotenv(dotenv_path=env)
 
-    return {
-        key[6:].lower(): os.getenv(key) for key in os.environ.keys() if key.startswith(prefix)
-    }
+    return {key[6:].lower(): os.getenv(key) for key in os.environ.keys() if key.startswith(prefix)}

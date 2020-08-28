@@ -1,8 +1,8 @@
 from .api import HumioAPI
-from .timeseries import WindowedTimeseries
 from .queryjob import QueryJob
 from .logsetup import setup_excellent_logging
 from .loadenv import loadenv
+from .utils import parse_ts, consume_async
 
 # Set default logging handler to avoid "No handler found" warnings.
 # https://docs.python.org/3/howto/logging.html#configuring-logging-for-a-library

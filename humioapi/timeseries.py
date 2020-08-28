@@ -7,33 +7,36 @@ NOTE: IF you stumbled upon this, know that this is pretty much just a POC/playgr
 
 import json
 from threading import Lock
+from snaptime import snap_tz
+import tzlocal
 
-import pandas as pd
+try:
+    import pandas as pd
+except ImportError as e:
+    raise ImportError(f"This feature requires the optional extra `pandas` package to be installed: {str(e)}")
+
+from .utils import parse_ts
 import structlog
-
-from snaptime import snap
-
-from .utils import humio_to_timeseries, parse_ts
 
 logger = structlog.getLogger(__name__)
 
 
 class WindowedTimeseries:
     """
-    Define an aggregated search for timeseries data in the spesified time
+    Defines an aggregated search for timeseries data in the specified time
     window which may be static or moving (with relative timestamps).
 
     Parameters
     ----------
-    api : humiocore.HumioAPI
-        An API instance for interacting with Humio
+    api : humioapi.HumioAPI
+        A Humio API instance for interacting with Humio
     query : string
         A Humio query string to execute
     repos : list
         A list of repositories to search against
     start : string
         A snaptime-token (-1h@h) or timestring to search after
-    end : string
+    stop : string
         A snaptime-token (@h) or timestring to search before
     freq : str
         A pandas frequency string to use when calculating missing buckets.
@@ -50,7 +53,7 @@ class WindowedTimeseries:
         A title identifying this search - use however you like, by default ""
     cutoff_start : str, optional
         An unsigned snaptime-token to cutoff the head of the final DataFrame, by default "0m"
-    cutoff_end : str, optional
+    cutoff_stop : str, optional
         An unsigned snaptime-token to cutoff the tail of the final DataFrame, by default "0m"
     trusted_pickle : string, optional
         A path to a trusted pickle-file to save/load the DataFrame, by default None
@@ -62,21 +65,22 @@ class WindowedTimeseries:
         query,
         repos,
         start,
-        end,
+        stop,
         freq,
         timefield="_bucket",
         datafields=None,
         groupby=None,
         title="",
         cutoff_start="0m",
-        cutoff_end="0m",
+        cutoff_stop="0m",
         trusted_pickle=None,
+        tz=None,
     ):
         self.api = api
         self.query = query
         self.repos = repos
         self.start = start
-        self.end = end
+        self.stop = stop
 
         self.freq = freq
         self.timefield = timefield
@@ -84,8 +88,9 @@ class WindowedTimeseries:
         self.groupby = groupby
         self.title = title
         self.cutoff_start = cutoff_start
-        self.cutoff_end = cutoff_end
+        self.cutoff_stop = cutoff_stop
 
+        self.tz = tzlocal.get_localzone()
         self.data = pd.DataFrame()
         self.trusted_pickle = trusted_pickle
         self._metadata = {}
@@ -95,15 +100,12 @@ class WindowedTimeseries:
             self.load_df()
 
         logger.debug(
-            "Initialized search object definition",
-            start=self.start,
-            end=self.end,
-            event_count=len(self.data),
+            "Initialized search object definition", start=self.start, stop=self.stop, event_count=len(self.data),
         )
 
     def copyable_attributes(self, ignore=None):
         """
-        Provieds all instance attributes that can be considered copyable
+        Provides all instance attributes that can be considered copyable
 
         Parameters
         ----------
@@ -143,9 +145,7 @@ class WindowedTimeseries:
 
             self.data = pd.read_pickle(self.trusted_pickle + ".pkl")
             logger.debug(
-                "Loaded pickled data from file",
-                event_count=len(self.data),
-                pickle=self.trusted_pickle + ".pkl",
+                "Loaded pickled data from file", event_count=len(self.data), pickle=self.trusted_pickle + ".pkl",
             )
         except FileNotFoundError:
             pass
@@ -156,23 +156,21 @@ class WindowedTimeseries:
             json.dump(self.copyable_attributes(), metafile)
         self.data.to_pickle(self.trusted_pickle + ".pkl")
         logger.debug(
-            "Saved pickled data to file",
-            event_count=len(self.data),
-            pickle=self.trusted_pickle + ".pkl",
+            "Saved pickled data to file", event_count=len(self.data), pickle=self.trusted_pickle + ".pkl",
         )
 
     def current_refresh_window(self):
         """Returns the smallest possible search window required to update missing data
 
         Returns:
-            (`pd.Timestamp`, `pd.Timestamp`)
+            Tuple: (`pd.Timestamp`, `pd.Timestamp`)
         """
 
         # Shrink the search window according to the cutoffs and generate all buckets
         # that should appear in the current DataFrame
         wanted_buckets = pd.date_range(
-            snap(parse_ts(self.start), "+" + self.cutoff_start),
-            snap(parse_ts(self.end), "-" + self.cutoff_end),
+            snap_tz(parse_ts(self.start, stdlib=True), "+" + self.cutoff_start, tz=self.tz),
+            snap_tz(parse_ts(self.stop, stdlib=True), "-" + self.cutoff_stop, tz=self.tz),
             freq=self.freq,
             closed="left",
         )
@@ -189,8 +187,8 @@ class WindowedTimeseries:
             return None, None
 
         # Expand the search window again according to the cutoffs
-        start = snap(missing.min(), "-" + self.cutoff_start)
-        end = snap(missing.max() + pd.Timedelta(self.freq), "+" + self.cutoff_end)
+        start = snap_tz(missing.min(), "-" + self.cutoff_start, tz=self.tz)
+        stop = snap_tz(missing.max() + pd.Timedelta(self.freq), "+" + self.cutoff_stop, tz=self.tz)
 
         logger.debug(
             "Calculated minimum required search range",
@@ -199,14 +197,14 @@ class WindowedTimeseries:
             wanted_start=wanted_buckets.min(),
             wanted_stop=wanted_buckets.max(),
             next_start=start,
-            next_stop=end,
+            next_stop=stop,
         )
-        return start, end
+        return start, stop
 
     def update(self):
         """
         Find and update missing data in the current `pd.DataFrame` according
-        to the start and end timestamps. Optionally load and save a pickled
+        to the start and stop timestamps. Optionally load and save a pickled
         `pd.DataFrame` to file.
 
         Concurrent calls will return non-blocking until the first call
@@ -220,17 +218,14 @@ class WindowedTimeseries:
 
         if self.lock.acquire(blocking=False):
             try:
-                start, end = self.current_refresh_window()
-                if all([start, end]):
-                    new_data = list(self.api.streaming_search(self.query, self.repos, start, end))
+                start, stop = self.current_refresh_window()
+                if all([start, stop]):
+                    new_data = list(self.api.streaming_search(self.query, self.repos, start, stop))
 
                     if new_data:
                         logger.info("Search returned new data", events=len(new_data))
                         data = humio_to_timeseries(
-                            new_data,
-                            timefield=self.timefield,
-                            datafields=self.datafields,
-                            groupby=self.groupby,
+                            new_data, timefield=self.timefield, datafields=self.datafields, groupby=self.groupby,
                         )
                         self.data = data.combine_first(self.data)
 
@@ -241,8 +236,14 @@ class WindowedTimeseries:
 
                 # Clean up data outside the current search window, adjusted with the cutoffs
                 self.data = self.data[
-                    (self.data.index >= str(snap(parse_ts(self.start), "+" + self.cutoff_start)))
-                    & (self.data.index < str(snap(parse_ts(self.end), "-" + self.cutoff_end)))
+                    (
+                        self.data.index
+                        >= str(snap_tz(parse_ts(self.start, stdlib=True), "+" + self.cutoff_start, tz=self.tz))
+                    )
+                    & (
+                        self.data.index
+                        < str(snap_tz(parse_ts(self.stop, stdlib=True), "-" + self.cutoff_stop, tz=self.tz))
+                    )
                 ]
 
                 if self.trusted_pickle:
@@ -251,3 +252,32 @@ class WindowedTimeseries:
                 self.lock.release()
         else:
             logger.info("Data update already in progress in another thread", lock=self.lock)
+
+
+def humio_to_timeseries(events, timefield="_bucket", datafields=None, groupby=None, fill=None, sep="@"):
+    """
+    Convert a list of Humio event dicts to a datetime-indexed pandas dataframe
+    """
+
+    df = pd.DataFrame.from_records(events)
+    df = df.apply(pd.to_numeric, errors="coerce")
+
+    df[timefield] = pd.to_datetime(df[timefield], unit="ms", utc=True)
+    df = pd.pivot_table(df, index=timefield, values=datafields, columns=groupby, fill_value=fill)
+    df = df.tz_convert(tzlocal.get_localzone())
+
+    # Make column headers more human friendly if we're working with a multiindex
+    if isinstance(df.columns, pd.MultiIndex):
+        if len(df.columns.levels) == 2:
+            df.columns = [sep.join(col).strip() for col in df.columns.values]
+        elif len(df.columns.levels) > 2:
+            df.columns = [sep.join(col).strip() for col in df.columns.values]
+
+    # pandas bug https://github.com/pandas-dev/pandas/issues/25439
+    import warnings  # noqa
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        df = df.sort_index()
+
+    return df

@@ -2,7 +2,6 @@ import logging
 import logging.config
 import sys
 import threading
-
 import structlog
 import structlog_pretty
 
@@ -66,10 +65,6 @@ def setup_excellent_logging(level=logging.INFO, verbose_fields=True):
                     "level": logging.INFO,
                     "propagate": False,
                 },  # Bugfix for https://github.com/ipython/ipython/issues/10946
-                'requests.packages.urllib3': {
-                    'handlers': ['console'],
-                    'level': logging.WARNING,
-                },
                 'urllib3.connectionpool':  {
                     'handlers': ['console'],
                     'level': logging.WARNING,
