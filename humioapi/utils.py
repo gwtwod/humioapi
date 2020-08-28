@@ -190,11 +190,11 @@ def parse_humio_url(url):
 
     Returns
     -------
-    tuple
-        query : str
-        repo : str
-        start : DateTime
-        end : DateTime
+    Tuple
+        (query : str,
+        repo : str,
+        start : DateTime,
+        stop : DateTime)
     """
 
     parsed = urllib.parse.urlparse(url)
@@ -207,22 +207,23 @@ def parse_humio_url(url):
     if start.isdigit():
         start = parse_ts(start)
     else:
-        # Humio doesnt use signed relative time modifiers
+        # Humio doesnt use signed relative time modifiers. Unlike Splunk's
+        # relative time modifiers, Humio's are are always in the past
         start = parse_ts(f"-{start}")
 
-    end = querystring.get("end", ["now"])[0]
-    end = parse_ts(end)
+    stop = querystring.get("end", ["now"])[0]
+    stop = parse_ts(stop)
 
-    return (query, repo, start, end)
+    return (query, repo, start, stop)
 
 
-def create_humio_url(base_url, repo, query, start, end, scheme="https"):
+def create_humio_url(base_url, repo, query, start, stop, scheme="https"):
     """Returns a Humio search URL built from the provided components"""
 
-    start = int(start.timestamp() * 1000)
-    end = int(end.timestamp() * 1000)
+    start = int(parse_ts(start).timestamp() * 1000)
+    stop = int(parse_ts(stop).timestamp() * 1000)
 
-    query = {"query": query, "start": start, "end": end}
+    query = {"query": query, "start": start, "end": stop}
 
     url = urllib.parse.ParseResult(
         scheme=scheme,

@@ -1,16 +1,23 @@
 # Humio API (unofficial lib)
 
+> This project requires `Python>=3.6.1`
+
 This is an unofficial library for interacting with [Humio](https://www.humio.com/)'s API. If you're looking for the official Python Humio library it can be found [here: humiolib](https://github.com/humio/python-humio). This library mostly exists because the official library was incredibly basic back in 2019 when I needed this.
+
+## Installation
+
+    pip install humiocli
 
 ## Main features
 
-* Asyncronous and syncronous streaming queries supported by `httpx`
+* Asyncronous and syncronous streaming queries supported by `httpx`.
 * Queryjobs which can be polled once, or until completed.
-* Chainable relative time modifiers (similar to Splunk e.g. `-1d@h-30m`)
-* List repository details (*NOTE*: normal Humio users cannot see repos without read permission)
-* Easy env-variable based configuration
+* Chainable relative time modifiers (similar to Splunk e.g. `-1d@h-30m`).
+* List repository details (*NOTE*: normal Humio users cannot see repos without read permission).
+* Easy env-variable based configuration.
 * Ingest data to Humio, although you probably want to use Filebeat for anything other than one-off things to your sandbox.
-* (*Work in progress*) Create and update parsers.
+* CLI companion tool available at [humiocli](https://github.com/gwtwod/humiocli).
+* Create and update parsers.
 * (*Work in progress*) An updateable timeseries, which can follow a moving timewindow using relative modifiers, optionally querying only the changed timewindow since previous update.
 
 ## Usage
@@ -115,7 +122,7 @@ import pandas as pd
 sns.set(color_codes=True)
 sns.set_style('darkgrid')
 
-results = api.streaming_search(query='log_type=stats | timechart(series=metric)', repos=['frontend'], start=start, end=end)
+results = api.streaming_search(query='log_type=stats | timechart(series=metric)', repos=['frontend'], start=start, stop=stop)
 df = pd.DataFrame(results)
 df['_count'] = df['_count'].astype(float)
 

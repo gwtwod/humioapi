@@ -8,6 +8,8 @@
 
 ### Fixed
 
+- Renamed `end` to `start` in a few forgotten places (url util functions)
+
 ### Deprecated
 
 ### Removed

@@ -38,7 +38,7 @@ class QueryJob:
     """
 
     def __init__(
-        self, token, base_url, query, repo, start="-2d@d", stop="now", live=False, literal_time=False, job_id=None,
+        self, token, base_url, query, repo, start="-2d@d", stop="now", live=False, literal_time=False, job_id=None
     ):
         self.client = HumioAPI(token=token, base_url=base_url)
         self.query = query

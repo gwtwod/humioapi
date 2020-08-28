@@ -100,7 +100,7 @@ class WindowedTimeseries:
             self.load_df()
 
         logger.debug(
-            "Initialized search object definition", start=self.start, stop=self.stop, event_count=len(self.data),
+            "Initialized search object definition", start=self.start, stop=self.stop, event_count=len(self.data)
         )
 
     def copyable_attributes(self, ignore=None):
@@ -145,7 +145,7 @@ class WindowedTimeseries:
 
             self.data = pd.read_pickle(self.trusted_pickle + ".pkl")
             logger.debug(
-                "Loaded pickled data from file", event_count=len(self.data), pickle=self.trusted_pickle + ".pkl",
+                "Loaded pickled data from file", event_count=len(self.data), pickle=self.trusted_pickle + ".pkl"
             )
         except FileNotFoundError:
             pass
@@ -155,9 +155,7 @@ class WindowedTimeseries:
         with open(self.trusted_pickle + ".meta", "w") as metafile:
             json.dump(self.copyable_attributes(), metafile)
         self.data.to_pickle(self.trusted_pickle + ".pkl")
-        logger.debug(
-            "Saved pickled data to file", event_count=len(self.data), pickle=self.trusted_pickle + ".pkl",
-        )
+        logger.debug("Saved pickled data to file", event_count=len(self.data), pickle=self.trusted_pickle + ".pkl")
 
     def current_refresh_window(self):
         """Returns the smallest possible search window required to update missing data
@@ -225,7 +223,7 @@ class WindowedTimeseries:
                     if new_data:
                         logger.info("Search returned new data", events=len(new_data))
                         data = humio_to_timeseries(
-                            new_data, timefield=self.timefield, datafields=self.datafields, groupby=self.groupby,
+                            new_data, timefield=self.timefield, datafields=self.datafields, groupby=self.groupby
                         )
                         self.data = data.combine_first(self.data)
 
