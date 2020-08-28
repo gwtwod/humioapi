@@ -1,40 +1,42 @@
 [tool.poetry]
-name = "humiocore"
-version = "0.4.0"
-description = "A python library for for interacting with the Humio API"
+name = "humioapi"
+version = "0.5.0"
+description = "A Python library for easy interaction with the Humio API"
 authors = ["Jostein Haukeli"]
-repository = "https://github.com/gwtwod/py3humiocore"
+repository = "https://github.com/gwtwod/humioapi"
 readme = "README.md"
 
 packages = [
-    { include = "humiocore" }
+    { include = "humioapi" }
 ]
 
 [tool.poetry.dependencies]
-python = "^3.6"
+python = "^3.6.1"
 snaptime = "^0.2.4"
-pytz = "^2018.9"
-requests = "^2.21"
-structlog = "^19.1"
-structlog-pretty = "^0.1.1"
-colorama = "^0.4.1"
-pandas = "^0.24.1"
-tzlocal = "^1.5"
-chardet = "^3.0"
-python-dotenv = "^0.10.2"
-tqdm = "^4.39.0"
+structlog = "^20.1.0"
+structlog-pretty = "^0.2.0"
+tzlocal = "^2.1"
+chardet = "^3.0.4"
+python-dotenv = "^0.14.0"
+tqdm = "^4.48.2"
+pendulum = "^2.1.2"
+httpx = "^0.14.2"
+colorama = "^0.4.3"
+aiostream = "^0.4.1"
+pandas = {version = "^1.1.1", optional = true}
 
 [tool.poetry.dev-dependencies]
-black = { version = "*", allows-prereleases = true }
-pylint = "^2.3"
-pre-commit = "^1.18.3"
+black = {version = "^20.8b1", allow-prereleases = true}
+pylint = "*"
+pre-commit = "*"
+flake8 = "^3.8.3"
 
 [tool.dephell.main]
 from = {format = "poetry", path = "pyproject.toml"}
 to = {format = "setuppy", path = "setup.py"}
 
 [tool.black]
-line-length = 98
+line-length = 120
 target-version = ['py36', 'py37', 'py38']
 include = '\.pyi?$'
 exclude = '''

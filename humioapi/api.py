@@ -2,31 +2,27 @@
 This module implements an API object for interacting with the Humio API
 """
 
+import asyncio
 import json
-import re
 import time
-from itertools import chain
-
-import pandas as pd
-import requests
-import structlog
 import tzlocal
+import httpx
+from httpx._models import Headers
+import structlog
 from tqdm import tqdm
-
-from .utils import detailed_raise_for_status, tstrip
+from .utils import detailed_raise_for_status, parse_ts
+from .exceptions import HumioAPIException
 
 logger = structlog.getLogger(__name__)
 
 
 class HumioAPI:
-    def __init__(
-        self, token=None, ingest_token=None, base_url="https://cloud.humio.com", **kwargs
-    ):
+    def __init__(self, token=None, ingest_token=None, base_url="https://cloud.humio.com", **kwargs):
         self.base_url = base_url
         self.api_version = "v1"
         self.token = token
         self.ingest_token = ingest_token
-        self._base_headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        self._base_headers = Headers({"content-type": "application/json", "accept": "application/json"})
 
     def headers(self, overrides=None):
         """Returns a base JSON header with optional overrides from kwargs"""
@@ -34,9 +30,11 @@ class HumioAPI:
         if overrides is None:
             overrides = {}
 
-        headers = {**self._base_headers, **overrides}
-        if "authorization" not in set(k.lower() for k in headers) or not headers["authorization"]:
-            logger.error("No token provided in Authorization header")
+        headers = self._base_headers.copy()
+        headers.update(overrides)
+
+        if "authorization" not in headers:
+            raise HumioAPIException("No token provided in authorization header")
         elif not headers["authorization"].startswith("Bearer"):
             headers["authorization"] = "Bearer " + headers["authorization"]
         return headers
@@ -45,11 +43,10 @@ class HumioAPI:
         self,
         query,
         repo,
-        start=None,
-        end=None,
+        start="-2d@d",
+        stop="now",
         live=False,
         tz_offset=0,
-        timeout=30,
         literal_time=False,
     ):
         """
@@ -65,65 +62,61 @@ class HumioAPI:
             The query string to execute
         repo : string
             A repository or view name
-        start : pd.Timestamp (or any valid Humio format if literal_time=True), optional
-            Pandas tz-aware Timestamp to start searches from. Default None meaning all time
-        end : pd.Timestamp (or any valid Humio format if literal_time=True), optional
-            Pandas tz-aware Timestamp to search until. Default None meaning now
+        start : Timestring (or any valid Humio format if literal_time=True), optional
+            Timestring to start at, see humioapi.parse_ts() for details. Default -2d@d.
+        stop : Timestring (or any valid Humio format if literal_time=True), optional
+            Timestring to stop at, see humioapi.parse_ts() for details. Default now.
+        live : boolean
+            Create a live queryjob. If True, literal_time must also be True,
+            start must be a Humio relative time string and stop must be now.
         tz_offset : int, optional
             Timezone offset in minutes, see Humio documentation. By default 0
-        timeout : int, optional
-            Timeout in seconds for HTTP requests before giving up. By default 30
         literal_time : bool, optional
             If True, disable all parsing of the provided start and end times, by default False
 
         Returns
         -------
         dict
-            A dictionary with a job id and other metadata
+            A dictionary with the job id and other metadata
         """
 
         headers = self.headers({"authorization": self.token, "accept": "application/json"})
         url = f"{self.base_url}/api/{self.api_version}/repositories/{repo}/queryjobs"
 
-        search_details = {}
         payload = {"queryString": query, "isLive": live, "timeZoneOffsetMinutes": tz_offset}
 
         if live:
-            end = None
+            if literal_time is not True:
+                raise ValueError("The literal_time parameter must be True for live searches")
+            stop = "now"
 
-        if literal_time:
-            if start:
-                payload["start"] = start
-                search_details["time_start"] = start
-            if end:
-                payload["end"] = end
-                search_details["time_stop"] = end
-        else:
-            if start:
-                payload["start"] = int(start.timestamp() * 1000)
-                search_details["time_start"] = start.tz_convert(
-                    tzlocal.get_localzone()
-                ).isoformat()
-            if end:
-                payload["end"] = int(end.timestamp() * 1000)
-                search_details["time_stop"] = end.tz_convert(tzlocal.get_localzone()).isoformat()
-            if start and end and not literal_time:
-                search_details["time_span"] = tstrip(end - start)
+        start = start if literal_time else parse_ts(start)
+        stop = stop if literal_time else parse_ts(stop)
 
-        logger.info(
+        payload = {
+            "queryString": query,
+            "isLive": live,
+            "timeZoneOffsetMinutes": tz_offset,
+            "start": start if literal_time else int(start.timestamp() * 1000),
+            "end": stop if literal_time else int(stop.timestamp() * 1000),
+        }
+
+        logger.debug(
             "Creating new queryjob",
             json_payload=(json.dumps(payload)),
             repo=repo,
-            **search_details,
+            start=start if literal_time else start.in_timezone(tzlocal.get_localzone()).isoformat(),
+            stop=stop if literal_time else stop.in_timezone(tzlocal.get_localzone()).isoformat(),
+            span="N/A" if literal_time else (stop - start).as_interval().in_words(),
         )
 
-        queryjob = requests.post(url, json=payload, headers=headers, timeout=timeout)
+        queryjob = httpx.post(url, json=payload, headers=headers)
         detailed_raise_for_status(queryjob)
         return queryjob.json()
 
-    def consume_queryjob(self, repo, job_id, timeout=30, minwait=0.1, quiet=True):
+    def consume_queryjob(self, repo, job_id, minwait=0.1, quiet=True, async_client=None):
         """
-        Checks an existing remote queryjob continously and returns all its
+        Continously checks an existing remote queryjob and returns all its
         properties on completion.
 
         NOTE: Queryjobs can return at most 200 results for filter searches
@@ -134,7 +127,8 @@ class HumioAPI:
             dict: The job's complete JSON structure with events and metadata
         """
 
-        job = self.check_queryjob(repo, job_id)
+        logger.debug("Polling queryjob until done", repo=repo, job_id=job_id)
+        job = self.check_queryjob(repo, job_id, async_client=async_client)
         done = job["done"]
 
         with tqdm(total=job["metaData"]["totalWork"], leave=True, disable=quiet) as bar:
@@ -144,7 +138,7 @@ class HumioAPI:
                     wait = minwait
                 time.sleep(wait)
 
-                job = self.check_queryjob(repo, job_id, timeout=timeout)
+                job = self.check_queryjob(repo, job_id, async_client=async_client)
                 done = job["done"]
                 bar.update(job["metaData"]["workDone"] - bar.n)
             bar.update(bar.n)
@@ -152,8 +146,8 @@ class HumioAPI:
         logger.debug("Queryjob completed", meta=json.dumps(job["metaData"]))
         return job
 
-    def check_queryjob(self, repo, job_id, timeout=30):
-        """Checks a remote queryjob once
+    def check_queryjob(self, repo, job_id, async_client=None):
+        """Checks a remote queryjob once and outputs its data
 
         Returns:
             dict: The job's JSON metadata
@@ -162,11 +156,11 @@ class HumioAPI:
         headers = self.headers({"authorization": self.token, "accept": "application/json"})
         url = f"{self.base_url}/api/{self.api_version}/repositories/{repo}/queryjobs/{job_id}"
 
-        job = requests.get(url, headers=headers, timeout=timeout)
-        detailed_raise_for_status(job)
-        return job.json()
+        queryjob = httpx.get(url, headers=headers)
+        detailed_raise_for_status(queryjob)
+        return queryjob.json()
 
-    def delete_queryjob(self, repo, job_id):
+    def delete_queryjob(self, repo, job_id, async_client=None):
         """Stops and deletes a remote queryjob
 
         Returns:
@@ -176,11 +170,11 @@ class HumioAPI:
         headers = self.headers({"authorization": self.token, "accept": "application/json"})
         url = f"{self.base_url}/api/{self.api_version}/repositories/{repo}/queryjobs/{job_id}"
 
-        job = requests.delete(url, headers=headers)
-        detailed_raise_for_status(job)
-        return job.status_code
+        queryjob = httpx.delete(url, headers=headers)
+        detailed_raise_for_status(queryjob)
+        return queryjob.status_code
 
-    def streaming_search(self, query, repos, start=None, end=None, tz_offset=0, timeout=60):
+    def streaming_search(self, query, repos, start="-2d@d", stop="now", tz_offset=0, literal_time=False):
         """
         Execute syncronous streaming queries for all the requested repositories.
 
@@ -190,52 +184,133 @@ class HumioAPI:
             The query string to execute against each repository
         repos : list
             List of repository names (strings) to query
-        start : pd.Timestamp, optional
-            Pandas tz-aware Timestamp to start searches from. Default None meaning all time
-        end : pd.Timestamp, optional
-            Pandas tz-aware Timestamp to search until. Default None meaning now
+        start : Timestring (or any valid Humio format if literal_time=True), optional
+            Timestring to start at, see humioapi.parse_ts() for details. Default -2d@d.
+        stop : Timestring (or any valid Humio format if literal_time=True), optional
+            Timestring to stop at, see humioapi.parse_ts() for details. Default now.
         tz_offset : int, optional
-            Timezone offset in minutes, see Humio documentation. By default 0
-        timeout : int, optional
-            Timeout in seconds for HTTP requests before giving up. By default 60
+            Timezone offset in minutes, see Humio documentation. Default 0
+        literal_time : bool, optional
+            If True, disable all parsing of the provided start and end times. Default False
 
         Yields:
             dict: The event fields
         """
 
         headers = self.headers({"authorization": self.token, "accept": "application/x-ndjson"})
-        urls = [
-            f"{self.base_url}/api/{self.api_version}/repositories/{repo}/query" for repo in repos
-        ]
+        urls = [f"{self.base_url}/api/{self.api_version}/repositories/{repo}/query" for repo in repos]
 
-        search_details = {}
-        payload = {"queryString": query, "isLive": False, "timeZoneOffsetMinutes": tz_offset}
+        start = start if literal_time else parse_ts(start)
+        stop = stop if literal_time else parse_ts(stop)
 
-        if start:
-            payload["start"] = int(start.timestamp() * 1000)
-            search_details["time_start"] = start.tz_convert(tzlocal.get_localzone()).isoformat()
-        if end:
-            payload["end"] = int(end.timestamp() * 1000)
-            search_details["time_stop"] = end.tz_convert(tzlocal.get_localzone()).isoformat()
-        if start and end:
-            search_details["time_span"] = tstrip(end - start)
+        payload = {
+            "queryString": query,
+            "isLive": False,
+            "timeZoneOffsetMinutes": tz_offset,
+            "start": start if literal_time else int(start.timestamp() * 1000),
+            "end": stop if literal_time else int(stop.timestamp() * 1000),
+        }
 
-        logger.info(
-            "Creating new streaming jobs",
+        logger.debug(
+            "Creating new streaming search",
             json_payload=(json.dumps(payload)),
             repos=repos,
-            **search_details,
+            start=start if literal_time else start.in_timezone(tzlocal.get_localzone()).isoformat(),
+            stop=stop if literal_time else stop.in_timezone(tzlocal.get_localzone()).isoformat(),
+            span="N/A" if literal_time else (stop - start).as_interval().in_words(),
         )
 
-        with requests.Session() as session:
-            session.headers.update(headers)
-
+        with httpx.Client(headers=headers, timeout=httpx.Timeout(None)) as client:
             for url in urls:
-                job = session.post(url, json=payload, stream=True, timeout=timeout)
-                detailed_raise_for_status(job)
+                with client.stream("POST", url=url, json=payload,) as r:
+                    # Humio doesn't set the charset, and httpx fails to detect it properly
+                    r.headers.update({"content-type": "application/x-ndjson; charset=UTF-8"})
+                    r.raise_for_status()
 
-                for event in job.iter_lines(decode_unicode=True):
-                    yield json.loads(event)
+                    try:
+                        for event in r.iter_lines():
+                            yield json.loads(event)
+                    except RemoteProtocolError:
+                        # Humio doesn't necessarily have any more data to send when the query has completed
+                        r.close()
+
+    def async_streaming_tasks(
+        self, loop, query, repos, start="-2d@d", stop="now", tz_offset=0, literal_time=False, concurrent_limit=10
+    ):
+        """
+        Prepare and return an awaitable list of async streaming search tasks,
+        each task being an asyncronous generator. Creates one task for each
+        repository using the provided asyncio eventloop.
+
+        Parameters
+        ----------
+        loop : asyncio.AbstractEventLoop
+            An asyncio eventloop to schedule the tasks in. Required semaphore assignment.
+        query : string
+            The query string to execute against each repository
+        repos : list
+            List of repository names (strings) to query
+        start : Timestring (or any valid Humio format if literal_time=True), optional
+            Timestring to start at, see humioapi.parse_ts() for details. Default -2d@d.
+        stop : Timestring (or any valid Humio format if literal_time=True), optional
+            Timestring to stop at, see humioapi.parse_ts() for details. Default now.
+        tz_offset : int, optional
+            Timezone offset in minutes, see Humio documentation. Default 0
+        literal_time : bool, optional
+            If True, disable all parsing of the provided start and end times. Default False
+        concurrent_limit : int, optional
+            Number of streaming tasks to allow running concurrently.
+
+        Returns:
+            list: An awaitable providing a list of async generator tasks
+        """
+
+        headers = self.headers({"authorization": self.token, "accept": "application/x-ndjson"})
+        urls = [f"{self.base_url}/api/{self.api_version}/repositories/{repo}/query" for repo in repos]
+
+        timeout = httpx.Timeout(None)
+        concurrent_limiter = asyncio.Semaphore(concurrent_limit, loop=loop)
+
+        start = start if literal_time else parse_ts(start)
+        stop = stop if literal_time else parse_ts(stop)
+
+        payload = {
+            "queryString": query,
+            "isLive": False,
+            "timeZoneOffsetMinutes": tz_offset,
+            "start": start if literal_time else int(start.timestamp() * 1000),
+            "end": stop if literal_time else int(stop.timestamp() * 1000),
+        }
+
+        logger.debug(
+            "Preparing new asyncronous streaming tasks",
+            json_payload=(json.dumps(payload)),
+            repos=repos,
+            start=start if literal_time else start.in_timezone(tzlocal.get_localzone()).isoformat(),
+            stop=stop if literal_time else stop.in_timezone(tzlocal.get_localzone()).isoformat(),
+            span="N/A" if literal_time else (stop - start).as_interval().in_words(),
+        )
+
+        async def stream(async_client, url, payload):
+            async with concurrent_limiter:
+                async with async_client.stream("POST", url=url, json=payload,) as ar:
+                    # Humio doesn't set the charset, and httpx fails to detect it properly
+                    ar.headers.update({"content-type": "application/x-ndjson; charset=UTF-8"})
+                    ar.raise_for_status()
+                    try:
+                        async for line in ar.aiter_lines():
+                            yield json.loads(line)
+                    except httpx.RemoteProtocolError as e:
+                        # Humio doesn't necessarily have any more data to send when the query has completed
+                        logger.debug("Humio closed the connection prematurely", message=str(e))
+                        await ar.aclose()
+
+        async def prepare_streaming_tasks(urls, headers, payload, timeout):
+            async with httpx.AsyncClient(headers=headers, timeout=timeout) as async_client:
+                tasks = [stream(async_client, url, payload) for url in urls]
+                return tasks
+
+        return prepare_streaming_tasks(urls, headers=headers, payload=payload, timeout=timeout)
 
     def ingest_unstructured(self, events=None, fields=None, soft_limit=2 ** 20, dry=False):
         """
@@ -275,16 +350,14 @@ class HumioAPI:
                 logger.debug("Ingestion request prepared", json_payload=json.dumps(payload))
 
                 if not dry:
-                    req = requests.post(url, json=payload, headers=headers)
+                    req = httpx.post(url, json=payload, headers=headers)
                     detailed_raise_for_status(req)
 
         pending = []
         for event in events:
             if len("".join(pending)) >= soft_limit:
                 logger.warn(
-                    "An event exceeds the soft limit",
-                    length=len("".join(pending)),
-                    soft_limit=soft_limit,
+                    "An event exceeds the soft limit", length=len("".join(pending)), soft_limit=soft_limit,
                 )
                 _send(headers, url, pending, fields, soft_limit, dry)
                 del pending[:]
@@ -310,20 +383,19 @@ class HumioAPI:
                         name, isStarred
                         __typename
                         ... on Repository {
-                            uncompressedByteSize, timeOfLatestIngest
+                            uncompressedByteSize,
+                            timeOfLatestIngest
+                            groups {
+                                displayName
+                            }
                         }
                         permissions {
                             administerAlerts, administerDashboards,  administerFiles,
                             administerMembers, administerParsers, administerQueries, read, write
                         }
-                        roles {
-                            role {
-                                name
-                            }
-                        }
                     }
                 }"""
-        req = requests.post(url, json={"query": query}, headers=headers)
+        req = httpx.post(url, json={"query": query}, headers=headers)
         detailed_raise_for_status(req)
 
         if not req.json():
@@ -336,9 +408,7 @@ class HumioAPI:
             try:
                 repositories[repo["name"]] = {
                     "type": repo["__typename"].lower(),
-                    "last_ingest": pd.to_datetime(repo["timeOfLatestIngest"])
-                    if "timeOfLatestIngest" in repo
-                    else None,
+                    "last_ingest": parse_ts(repo["timeOfLatestIngest"]) if "timeOfLatestIngest" in repo else None,
                     "read_permission": repo["permissions"]["read"],
                     "write_permission": repo["permissions"]["write"],
                     "queryadmin_permission": repo["permissions"]["administerQueries"],
@@ -346,17 +416,13 @@ class HumioAPI:
                     "parseradmin_permission": repo["permissions"]["administerParsers"],
                     "fileadmin_permission": repo["permissions"]["administerFiles"],
                     "alertadmin_permission": repo["permissions"]["administerAlerts"],
-                    "roles": [role["role"]["name"] for role in repo["roles"]],
-                    "uncompressed_bytes": repo["uncompressedByteSize"]
-                    if "uncompressedByteSize" in repo
-                    else 0,
+                    "roles": [role["displayName"] for role in repo.get("groups", [])],
+                    "uncompressed_bytes": repo["uncompressedByteSize"] if "uncompressedByteSize" in repo else 0,
                     "favourite": repo["isStarred"],
                 }
             except (KeyError, AttributeError) as exc:
                 logger.exception(
-                    "Couldn't map repository/view object",
-                    repo=repo.get("name"),
-                    error_message=exc,
+                    "Couldn't map repository/view object", repo=repo.get("name"), error_message=exc,
                 )
         return repositories
 
@@ -412,14 +478,13 @@ class HumioAPI:
                         }}
                     }}"""
 
-            req = requests.post(url, json={"query": get}, headers=headers)
+            req = httpx.post(url, json={"query": get}, headers=headers)
             detailed_raise_for_status(req)
 
             existing_repo = req.json().get("data")
             if not existing_repo:
                 logger.error(
-                    "Did not find a repo with the given name, verify its existence and your access",
-                    repo=repo,
+                    "Did not find a repo with the given name, verify its existence and your access", repo=repo,
                 )
                 result["failed"].append(repo)
                 continue
@@ -427,15 +492,12 @@ class HumioAPI:
             existing_parser = existing_repo["repository"].get("parser")
             if not existing_parser:
                 logger.info("Creating new parser", repo=repo, parser=parser)
-                req = requests.post(url, json={"query": create}, headers=headers)
+                req = httpx.post(url, json={"query": create}, headers=headers)
                 detailed_raise_for_status(req)
                 response = req.json()
                 if response.get("errors"):
                     logger.error(
-                        "Failed to create new parser",
-                        repo=repo,
-                        parser=parser,
-                        json_payload=(json.dumps(response)),
+                        "Failed to create new parser", repo=repo, parser=parser, json_payload=(json.dumps(response)),
                     )
                     result["failed"].append(repo)
                     continue
@@ -445,7 +507,7 @@ class HumioAPI:
                 old_source = existing_parser.get("sourceCode")
                 if old_source != source:
                     logger.info("Updating existing parser", repo=repo, parser=parser)
-                    req = requests.post(url, json={"query": update}, headers=headers)
+                    req = httpx.post(url, json={"query": update}, headers=headers)
                     detailed_raise_for_status(req)
                     response = req.json()
                     if response.get("errors"):
