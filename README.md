@@ -35,7 +35,7 @@ api = humioapi.HumioAPI(**humioapi.loadenv())
 repositories = api.repositories()
 ```
 
-## Iterate over syncronouys streaming searches sequentially
+## Iterate over syncronous streaming searches sequentially
 
 ```python
 import humioapi
