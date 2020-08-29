@@ -18,7 +18,7 @@ logger = structlog.getLogger(__name__)
 
 class HumioAPI:
     def __init__(self, token=None, ingest_token=None, base_url="https://cloud.humio.com", **kwargs):
-        self.base_url = base_url
+        self.base_url = base_url.rstrip("/")
         self.api_version = "v1"
         self.token = token
         self.ingest_token = ingest_token

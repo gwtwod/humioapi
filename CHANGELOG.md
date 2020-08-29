@@ -8,7 +8,22 @@
 
 ### Fixed
 
+### Deprecated
+
+### Removed
+
+
+
+## [0.5.1] - 2020-08-29
+
+### Added
+
+### Changed
+
+### Fixed
+
 - Renamed `end` to `start` in a few forgotten places (url util functions)
+- Strip trailing slash in base urls instead of stupidy failing
 
 ### Deprecated
 
