@@ -18,7 +18,7 @@ logger = structlog.getLogger(__name__)
 
 class HumioAPI:
     def __init__(self, token=None, ingest_token=None, base_url="https://cloud.humio.com", **kwargs):
-        self.base_url = base_url
+        self.base_url = base_url.rstrip("/")
         self.api_version = "v1"
         self.token = token
         self.ingest_token = ingest_token
@@ -39,16 +39,7 @@ class HumioAPI:
             headers["authorization"] = "Bearer " + headers["authorization"]
         return headers
 
-    def create_queryjob(
-        self,
-        query,
-        repo,
-        start="-2d@d",
-        stop="now",
-        live=False,
-        tz_offset=0,
-        literal_time=False,
-    ):
+    def create_queryjob(self, query, repo, start="-2d@d", stop="now", live=False, tz_offset=0, literal_time=False):
         """
         Creates a remote queryjob and returns its job ID.
 
@@ -222,7 +213,7 @@ class HumioAPI:
 
         with httpx.Client(headers=headers, timeout=httpx.Timeout(None)) as client:
             for url in urls:
-                with client.stream("POST", url=url, json=payload,) as r:
+                with client.stream("POST", url=url, json=payload) as r:
                     # Humio doesn't set the charset, and httpx fails to detect it properly
                     r.headers.update({"content-type": "application/x-ndjson; charset=UTF-8"})
                     r.raise_for_status()
@@ -230,7 +221,7 @@ class HumioAPI:
                     try:
                         for event in r.iter_lines():
                             yield json.loads(event)
-                    except RemoteProtocolError:
+                    except httpx.RemoteProtocolError:
                         # Humio doesn't necessarily have any more data to send when the query has completed
                         r.close()
 
@@ -293,7 +284,7 @@ class HumioAPI:
 
         async def stream(async_client, url, payload):
             async with concurrent_limiter:
-                async with async_client.stream("POST", url=url, json=payload,) as ar:
+                async with async_client.stream("POST", url=url, json=payload) as ar:
                     # Humio doesn't set the charset, and httpx fails to detect it properly
                     ar.headers.update({"content-type": "application/x-ndjson; charset=UTF-8"})
                     ar.raise_for_status()
@@ -356,9 +347,7 @@ class HumioAPI:
         pending = []
         for event in events:
             if len("".join(pending)) >= soft_limit:
-                logger.warn(
-                    "An event exceeds the soft limit", length=len("".join(pending)), soft_limit=soft_limit,
-                )
+                logger.warn("An event exceeds the soft limit", length=len("".join(pending)), soft_limit=soft_limit)
                 _send(headers, url, pending, fields, soft_limit, dry)
                 del pending[:]
             elif len("".join(pending)) + len(event) >= soft_limit:
@@ -421,9 +410,7 @@ class HumioAPI:
                     "favourite": repo["isStarred"],
                 }
             except (KeyError, AttributeError) as exc:
-                logger.exception(
-                    "Couldn't map repository/view object", repo=repo.get("name"), error_message=exc,
-                )
+                logger.exception("Couldn't map repository/view object", repo=repo.get("name"), error_message=exc)
         return repositories
 
     def create_update_parser(self, repos, parser, source):
@@ -483,9 +470,7 @@ class HumioAPI:
 
             existing_repo = req.json().get("data")
             if not existing_repo:
-                logger.error(
-                    "Did not find a repo with the given name, verify its existence and your access", repo=repo,
-                )
+                logger.error("Did not find a repo with the given name, verify its existence and your access", repo=repo)
                 result["failed"].append(repo)
                 continue
 
@@ -497,7 +482,7 @@ class HumioAPI:
                 response = req.json()
                 if response.get("errors"):
                     logger.error(
-                        "Failed to create new parser", repo=repo, parser=parser, json_payload=(json.dumps(response)),
+                        "Failed to create new parser", repo=repo, parser=parser, json_payload=(json.dumps(response))
                     )
                     result["failed"].append(repo)
                     continue
@@ -512,10 +497,7 @@ class HumioAPI:
                     response = req.json()
                     if response.get("errors"):
                         logger.error(
-                            "Failed to create new parser",
-                            repo=repo,
-                            parser=parser,
-                            json_payload=(json.dumps(response)),
+                            "Failed to create new parser", repo=repo, parser=parser, json_payload=(json.dumps(response))
                         )
                         result["failed"].append(repo)
                         continue

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "humioapi"
-version = "0.5.0"
+version = "0.5.1"
 description = "A Python library for easy interaction with the Humio API"
 authors = ["Jostein Haukeli"]
 repository = "https://github.com/gwtwod/humioapi"
