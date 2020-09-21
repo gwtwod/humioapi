@@ -17,7 +17,7 @@ logger = structlog.getLogger(__name__)
 
 
 class HumioAPI:
-    def __init__(self, token=None, ingest_token=None, base_url="https://cloud.humio.com", **kwargs):
+    def __init__(self, base_url, token=None, ingest_token=None, **kwargs):
         self.base_url = base_url.rstrip("/")
         self.api_version = "v1"
         self.token = token
@@ -39,7 +39,7 @@ class HumioAPI:
             headers["authorization"] = "Bearer " + headers["authorization"]
         return headers
 
-    def create_queryjob(self, query, repo, start="-2d@d", stop="now", live=False, tz_offset=0, literal_time=False):
+    def create_queryjob(self, query, repo, start="-2d@d", stop="now", live=False, tz_offset=0, literal_time=False, timeout=30):
         """
         Creates a remote queryjob and returns its job ID.
 
@@ -64,6 +64,8 @@ class HumioAPI:
             Timezone offset in minutes, see Humio documentation. By default 0
         literal_time : bool, optional
             If True, disable all parsing of the provided start and end times, by default False
+        timeout : int or httpx.Timeout, optional
+            Timeout value in seconds for all httpx timeout types. By default 30 seconds.
 
         Returns
         -------
@@ -101,11 +103,12 @@ class HumioAPI:
             span="N/A" if literal_time else (stop - start).as_interval().in_words(),
         )
 
-        queryjob = httpx.post(url, json=payload, headers=headers)
-        detailed_raise_for_status(queryjob)
+        with httpx.Client(headers=headers, timeout=timeout) as client:
+            queryjob = client.post(url, json=payload)
+            detailed_raise_for_status(queryjob)
         return queryjob.json()
 
-    def consume_queryjob(self, repo, job_id, minwait=0.1, quiet=True, async_client=None):
+    def consume_queryjob(self, repo, job_id, minwait=0.1, quiet=True, timeout=30):
         """
         Continously checks an existing remote queryjob and returns all its
         properties on completion.
@@ -119,7 +122,7 @@ class HumioAPI:
         """
 
         logger.debug("Polling queryjob until done", repo=repo, job_id=job_id)
-        job = self.check_queryjob(repo, job_id, async_client=async_client)
+        job = self.check_queryjob(repo, job_id, timeout=timeout)
         done = job["done"]
 
         with tqdm(total=job["metaData"]["totalWork"], leave=True, disable=quiet) as bar:
@@ -129,7 +132,7 @@ class HumioAPI:
                     wait = minwait
                 time.sleep(wait)
 
-                job = self.check_queryjob(repo, job_id, async_client=async_client)
+                job = self.check_queryjob(repo, job_id, timeout=timeout)
                 done = job["done"]
                 bar.update(job["metaData"]["workDone"] - bar.n)
             bar.update(bar.n)
@@ -137,7 +140,7 @@ class HumioAPI:
         logger.debug("Queryjob completed", meta=json.dumps(job["metaData"]))
         return job
 
-    def check_queryjob(self, repo, job_id, async_client=None):
+    def check_queryjob(self, repo, job_id, timeout=30):
         """Checks a remote queryjob once and outputs its data
 
         Returns:
@@ -147,11 +150,11 @@ class HumioAPI:
         headers = self.headers({"authorization": self.token, "accept": "application/json"})
         url = f"{self.base_url}/api/{self.api_version}/repositories/{repo}/queryjobs/{job_id}"
 
-        queryjob = httpx.get(url, headers=headers)
+        queryjob = httpx.get(url, headers=headers, timeout=timeout)
         detailed_raise_for_status(queryjob)
         return queryjob.json()
 
-    def delete_queryjob(self, repo, job_id, async_client=None):
+    def delete_queryjob(self, repo, job_id, timeout=30):
         """Stops and deletes a remote queryjob
 
         Returns:
@@ -161,11 +164,11 @@ class HumioAPI:
         headers = self.headers({"authorization": self.token, "accept": "application/json"})
         url = f"{self.base_url}/api/{self.api_version}/repositories/{repo}/queryjobs/{job_id}"
 
-        queryjob = httpx.delete(url, headers=headers)
+        queryjob = httpx.delete(url, headers=headers, timeout=timeout)
         detailed_raise_for_status(queryjob)
         return queryjob.status_code
 
-    def streaming_search(self, query, repos, start="-2d@d", stop="now", tz_offset=0, literal_time=False):
+    def streaming_search(self, query, repos, start="-2d@d", stop="now", tz_offset=0, literal_time=False, timeout=30):
         """
         Execute syncronous streaming queries for all the requested repositories.
 
@@ -183,10 +186,15 @@ class HumioAPI:
             Timezone offset in minutes, see Humio documentation. Default 0
         literal_time : bool, optional
             If True, disable all parsing of the provided start and end times. Default False
+        timeout : int or httpx.Timeout, optional
+            Timeout value in seconds for all httpx timeout types. By default 30 seconds.
 
         Yields:
             dict: The event fields
         """
+
+        if isinstance(repos, str):
+            repos = [repos]
 
         headers = self.headers({"authorization": self.token, "accept": "application/x-ndjson"})
         urls = [f"{self.base_url}/api/{self.api_version}/repositories/{repo}/query" for repo in repos]
@@ -211,7 +219,7 @@ class HumioAPI:
             span="N/A" if literal_time else (stop - start).as_interval().in_words(),
         )
 
-        with httpx.Client(headers=headers, timeout=httpx.Timeout(None)) as client:
+        with httpx.Client(headers=headers, timeout=timeout) as client:
             for url in urls:
                 with client.stream("POST", url=url, json=payload) as r:
                     # Humio doesn't set the charset, and httpx fails to detect it properly
@@ -226,7 +234,7 @@ class HumioAPI:
                         r.close()
 
     def async_streaming_tasks(
-        self, loop, query, repos, start="-2d@d", stop="now", tz_offset=0, literal_time=False, concurrent_limit=10
+        self, loop, query, repos, start="-2d@d", stop="now", tz_offset=0, literal_time=False, timeout=30, concurrent_limit=10
     ):
         """
         Prepare and return an awaitable list of async streaming search tasks,
@@ -249,6 +257,8 @@ class HumioAPI:
             Timezone offset in minutes, see Humio documentation. Default 0
         literal_time : bool, optional
             If True, disable all parsing of the provided start and end times. Default False
+        timeout : int or httpx.Timeout, optional
+            Timeout value in seconds for all httpx timeout types. By default 30 seconds.
         concurrent_limit : int, optional
             Number of streaming tasks to allow running concurrently.
 
@@ -258,8 +268,6 @@ class HumioAPI:
 
         headers = self.headers({"authorization": self.token, "accept": "application/x-ndjson"})
         urls = [f"{self.base_url}/api/{self.api_version}/repositories/{repo}/query" for repo in repos]
-
-        timeout = httpx.Timeout(None)
         concurrent_limiter = asyncio.Semaphore(concurrent_limit, loop=loop)
 
         start = start if literal_time else parse_ts(start)
