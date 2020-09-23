@@ -1,6 +1,6 @@
 from .api import HumioAPI
 from .queryjob import QueryJob
-from .logsetup import setup_excellent_logging
+from .logsetup import initialize_logging
 from .loadenv import loadenv
 from .utils import parse_ts, consume_async
 
