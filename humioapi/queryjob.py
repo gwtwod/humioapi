@@ -34,9 +34,7 @@ class QueryJob:
         Job ID for an existing queryjob, by default None
     """
 
-    def __init__(
-        self, client, query, repo, start="-2d@d", stop="now", live=False, literal_time=False, job_id=None
-    ):
+    def __init__(self, client, query, repo, start="-2d@d", stop="now", live=False, literal_time=False, job_id=None):
         self.client = client
         self.query = query
         self.repo = repo

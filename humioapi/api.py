@@ -39,7 +39,9 @@ class HumioAPI:
             headers["authorization"] = "Bearer " + headers["authorization"]
         return headers
 
-    def create_queryjob(self, query, repo, start="-2d@d", stop="now", live=False, tz_offset=0, literal_time=False, timeout=30):
+    def create_queryjob(
+        self, query, repo, start="-2d@d", stop="now", live=False, tz_offset=0, literal_time=False, timeout=30
+    ):
         """
         Creates a remote queryjob and returns its job ID.
 
@@ -234,7 +236,16 @@ class HumioAPI:
                         r.close()
 
     def async_streaming_tasks(
-        self, loop, query, repos, start="-2d@d", stop="now", tz_offset=0, literal_time=False, timeout=30, concurrent_limit=10
+        self,
+        loop,
+        query,
+        repos,
+        start="-2d@d",
+        stop="now",
+        tz_offset=0,
+        literal_time=False,
+        timeout=30,
+        concurrent_limit=10,
     ):
         """
         Prepare and return an awaitable list of async streaming search tasks,
@@ -478,7 +489,7 @@ class HumioAPI:
 
             existing_repo = req.json().get("data")
             if not existing_repo:
-                logger.error("Did not find a repo with the given name, verify its existence and your access", repo=repo)
+                logger.error("Did not find a repo with the given name, verify its existence/your access", repo=repo)
                 result["failed"].append(repo)
                 continue
 

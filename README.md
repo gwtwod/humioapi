@@ -2,7 +2,7 @@
 
 > This project requires `Python>=3.6.1`
 
-This is an unofficial library for interacting with [Humio](https://www.humio.com/)'s API. If you're looking for the official Python Humio library it can be found [here: humiolib](https://github.com/humio/python-humio). This library mostly exists because the official library was incredibly basic back in 2019 when I needed this.
+This is an unofficial library for interacting with [Humio](https://www.humio.com/)'s API. If you're looking for the official Python Humio library it can be found [here: humiolib](https://github.com/humio/python-humio). This library mostly exists because the official library was very basic back in 2019 when I first needed this.
 
 ## Installation
 
@@ -18,7 +18,7 @@ This is an unofficial library for interacting with [Humio](https://www.humio.com
 * Ingest data to Humio, although you probably want to use Filebeat for anything other than one-off things to your sandbox.
 * CLI companion tool available at [humiocli](https://github.com/gwtwod/humiocli).
 * Create and update parsers.
-* (*Work in progress*) An updateable timeseries, which can follow a moving timewindow using relative modifiers, optionally querying only the changed timewindow since previous update.
+* (*PoC*) An updateable timeseries, which can follow a moving timewindow using relative modifiers, optionally querying only the changed timewindow since previous update.
 
 ## Usage
 
@@ -30,7 +30,9 @@ Create an instance of HumioAPI to get started
 
 ```python
 import humioapi
-humioapi.setup_excellent_logging('INFO')
+import logging
+humioapi.initialize_logging(level=logging.INFO, fmt="human")
+
 api = humioapi.HumioAPI(**humioapi.loadenv())
 repositories = api.repositories()
 ```
@@ -39,7 +41,9 @@ repositories = api.repositories()
 
 ```python
 import humioapi
-humioapi.setup_excellent_logging('INFO')
+import logging
+humioapi.initialize_logging(level=logging.INFO, fmt="human")
+
 api = humioapi.HumioAPI(**humioapi.loadenv())
 stream = api.streaming_search(
     query="log_type=trace user=someone",
@@ -56,7 +60,9 @@ for event in stream:
 ```python
 import asyncio
 import humioapi
-humioapi.setup_excellent_logging('INFO')
+import logging
+humioapi.initialize_logging(level=logging.INFO, fmt="human")
+
 api = humioapi.HumioAPI(**humioapi.loadenv())
 loop = asyncio.new_event_loop()
 
@@ -97,9 +103,10 @@ Run this code to get started:
 
 ```python
 import humioapi
-humioapi.setup_excellent_logging('INFO')
-api = humioapi.HumioAPI(**humioapi.loadenv())
+import logging
+humioapi.initialize_logging(level=logging.INFO, fmt="human")
 
+api = humioapi.HumioAPI(**humioapi.loadenv())
 results = api.streaming_search(query='log_type=trace user=someone', repos=['frontend', 'backend'], start="@d", stop="now")
 for i in results:
     print(i)
