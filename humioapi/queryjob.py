@@ -5,7 +5,6 @@ This module provides a helper object to manage pollable long-lived queryjobs
 import warnings
 import json
 import structlog
-from .api import HumioAPI
 from .exceptions import MaxResultsExceededWarning, HumioBackendWarning
 from httpx import HTTPStatusError
 
@@ -17,6 +16,8 @@ class QueryJob:
 
     Parameters
     ----------
+    client : humioapi.api.HumioAPI
+        An instance of HumioAPI to use with this Queryjob.
     query : string
         The query string to execute
     repo : string
@@ -31,16 +32,12 @@ class QueryJob:
         If True, disable all parsing of the provided start and stop times, by default False
     job_id : str, optional
         Job ID for an existing queryjob, by default None
-    token : str
-        Your personal *secret* Humio token
-    base_url : str
-        The base URL for your Humio instance, for example https://cloud.humio.com
     """
 
     def __init__(
-        self, token, base_url, query, repo, start="-2d@d", stop="now", live=False, literal_time=False, job_id=None
+        self, client, query, repo, start="-2d@d", stop="now", live=False, literal_time=False, job_id=None
     ):
-        self.client = HumioAPI(token=token, base_url=base_url)
+        self.client = client
         self.query = query
         self.repo = repo
         self.start = start
