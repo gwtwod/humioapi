@@ -152,8 +152,9 @@ class HumioAPI:
         headers = self.headers({"authorization": self.token, "accept": "application/json"})
         url = f"{self.base_url}/api/{self.api_version}/repositories/{repo}/queryjobs/{job_id}"
 
-        queryjob = httpx.get(url, headers=headers, timeout=timeout)
-        detailed_raise_for_status(queryjob)
+        with httpx.Client(headers=headers, timeout=timeout) as client:
+            queryjob = client.get(url)
+            detailed_raise_for_status(queryjob)
         return queryjob.json()
 
     def delete_queryjob(self, repo, job_id, timeout=30):
@@ -166,8 +167,9 @@ class HumioAPI:
         headers = self.headers({"authorization": self.token, "accept": "application/json"})
         url = f"{self.base_url}/api/{self.api_version}/repositories/{repo}/queryjobs/{job_id}"
 
-        queryjob = httpx.delete(url, headers=headers, timeout=timeout)
-        detailed_raise_for_status(queryjob)
+        with httpx.Client(headers=headers, timeout=timeout) as client:
+            queryjob = client.delete(url)
+            detailed_raise_for_status(queryjob)
         return queryjob.status_code
 
     def streaming_search(self, query, repos, start="-2d@d", stop="now", tz_offset=0, literal_time=False, timeout=30):
@@ -360,8 +362,9 @@ class HumioAPI:
                 logger.debug("Ingestion request prepared", json_payload=json.dumps(payload))
 
                 if not dry:
-                    req = httpx.post(url, json=payload, headers=headers)
-                    detailed_raise_for_status(req)
+                    with httpx.Client(headers=headers) as client:
+                        req = client.post(url, json=payload)
+                        detailed_raise_for_status(req)
 
         pending = []
         for event in events:
@@ -403,8 +406,10 @@ class HumioAPI:
                         }
                     }
                 }"""
-        req = httpx.post(url, json={"query": query}, headers=headers)
-        detailed_raise_for_status(req)
+
+        with httpx.Client(headers=headers) as client:
+            req = client.post(url, json={"query": query})
+            detailed_raise_for_status(req)
 
         if not req.json():
             logger.error("No repositories or views found, verify that your token is valid")
@@ -484,8 +489,9 @@ class HumioAPI:
                         }}
                     }}"""
 
-            req = httpx.post(url, json={"query": get}, headers=headers)
-            detailed_raise_for_status(req)
+            with httpx.Client(headers=headers) as client:
+                req = client.post(url, json={"query": get})
+                detailed_raise_for_status(req)
 
             existing_repo = req.json().get("data")
             if not existing_repo:
@@ -496,8 +502,9 @@ class HumioAPI:
             existing_parser = existing_repo["repository"].get("parser")
             if not existing_parser:
                 logger.info("Creating new parser", repo=repo, parser=parser)
-                req = httpx.post(url, json={"query": create}, headers=headers)
-                detailed_raise_for_status(req)
+                with httpx.Client(headers=headers) as client:
+                    req = httpx.post(url, json={"query": create})
+                    detailed_raise_for_status(req)
                 response = req.json()
                 if response.get("errors"):
                     logger.error(
@@ -511,12 +518,18 @@ class HumioAPI:
                 old_source = existing_parser.get("sourceCode")
                 if old_source != source:
                     logger.info("Updating existing parser", repo=repo, parser=parser)
-                    req = httpx.post(url, json={"query": update}, headers=headers)
-                    detailed_raise_for_status(req)
+
+                    with httpx.Client(headers=headers) as client:
+                        req = client.post(url, json={"query": update})
+                        detailed_raise_for_status(req)
+
                     response = req.json()
                     if response.get("errors"):
                         logger.error(
-                            "Failed to create new parser", repo=repo, parser=parser, json_payload=(json.dumps(response))
+                            "Failed to create new parser",
+                            repo=repo,
+                            parser=parser,
+                            json_payload=(json.dumps(response))
                         )
                         result["failed"].append(repo)
                         continue
