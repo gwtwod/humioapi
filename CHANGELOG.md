@@ -13,6 +13,30 @@
 ### Removed
 
 
+# Changelog
+
+## [0.6.0] - 2020-09-23
+
+### Added
+
+- Optional timeout parameters to search APIs. By default 30 seconds. Can be an integer og a httpx.Timeout.
+
+### Changed
+
+- Refactored logging helpers with a new function `humioapi.initialize_logging` providing sane structlog JSON (default) or Human readable logs depending on the chosen format.
+- QueryJob now takes a client instance instead of a token and base_url
+- Bumped dependency versions
+
+### Fixed
+
+- Use context manager with all `httpx` requests so connections are closed properly.
+
+### Deprecated
+
+### Removed
+
+- `humioapi.setup_excellent_logging` removed in favor of `humioapi.initialize_logging`
+
 
 ## [0.5.1] - 2020-08-29
 
