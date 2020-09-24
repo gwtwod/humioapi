@@ -13,6 +13,12 @@
 ### Removed
 
 
+## [0.6.1] - 2020-09-24
+
+### Fixed
+
+- Added color style to TRACE logging level in console renderer logging helper, since httpx defines that level (5).
+
 # Changelog
 
 ## [0.6.0] - 2020-09-23

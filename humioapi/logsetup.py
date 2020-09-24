@@ -7,6 +7,7 @@ import tzlocal
 import datetime as dt
 import inspect
 import structlog
+import colorama
 
 logger = structlog.getLogger("unhandled_exception:%s" % __name__)
 LOGGED_TZ = tz = tzlocal.get_localzone()
@@ -157,6 +158,9 @@ def initialize_logging(configure_once=True, fmt="json", level=20, logger_overrid
     if logger_overrides is not None:
         loggers = {**loggers, **logger_overrides}
 
+    level_styles = structlog.dev.ConsoleRenderer.get_default_level_styles()
+    level_styles["trace"] = colorama.Fore.CYAN
+
     config = {
         "version": 1,
         "disable_existing_loggers": False,
@@ -168,7 +172,7 @@ def initialize_logging(configure_once=True, fmt="json", level=20, logger_overrid
             },
             "human": {
                 "()": structlog.stdlib.ProcessorFormatter,
-                "processor": structlog.dev.ConsoleRenderer(colors=True, pad_event=40),
+                "processor": structlog.dev.ConsoleRenderer(colors=True, level_styles=level_styles, pad_event=40),
                 "foreign_pre_chain": pre_processor_chain,
             },
         },
