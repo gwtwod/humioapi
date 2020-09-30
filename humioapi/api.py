@@ -526,10 +526,7 @@ class HumioAPI:
                     response = req.json()
                     if response.get("errors"):
                         logger.error(
-                            "Failed to create new parser",
-                            repo=repo,
-                            parser=parser,
-                            json_payload=(json.dumps(response))
+                            "Failed to create new parser", repo=repo, parser=parser, json_payload=(json.dumps(response))
                         )
                         result["failed"].append(repo)
                         continue

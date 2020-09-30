@@ -148,11 +148,11 @@ def initialize_logging(configure_once=True, fmt="json", level=20, logger_overrid
             "level": logging.INFO,
             "propagate": False,
         },
-        'urllib3.connectionpool':  {
-            'handlers': ['console'],
-            'level': logging.WARNING,
+        "urllib3.connectionpool": {
+            "handlers": ["console"],
+            "level": logging.WARNING,
             "propagate": False,
-        }
+        },
     }
 
     if logger_overrides is not None:
@@ -160,6 +160,7 @@ def initialize_logging(configure_once=True, fmt="json", level=20, logger_overrid
 
     level_styles = structlog.dev.ConsoleRenderer.get_default_level_styles()
     level_styles["trace"] = colorama.Fore.CYAN
+    level_styles["success"] = colorama.Fore.GREEN
 
     config = {
         "version": 1,
