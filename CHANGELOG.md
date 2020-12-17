@@ -1,5 +1,6 @@
 # Changelog
 
+
 ## [Unreleased]
 
 ### Added
@@ -13,13 +14,25 @@
 ### Removed
 
 
+## [0.6.2] - 2020-12-17
+
+### Changed
+
+- Renamed `async_streaming_tasks` to `async_streaming_search` and reworked the API to make it easier to setup multiple
+queries with different properties by passing queries as a list of dicts.
+- Bumped dependency versions
+
+### Fixed
+
+Some README typos
+
+
 ## [0.6.1] - 2020-09-24
 
 ### Fixed
 
 - Added color style to TRACE logging level in console renderer logging helper, since httpx defines that level (5).
 
-# Changelog
 
 ## [0.6.0] - 2020-09-23
 
@@ -37,8 +50,6 @@
 
 - Use context manager with all `httpx` requests so connections are closed properly.
 
-### Deprecated
-
 ### Removed
 
 - `humioapi.setup_excellent_logging` removed in favor of `humioapi.initialize_logging`
@@ -46,19 +57,10 @@
 
 ## [0.5.1] - 2020-08-29
 
-### Added
-
-### Changed
-
 ### Fixed
 
 - Renamed `end` to `start` in a few forgotten places (url util functions)
 - Strip trailing slash in base urls instead of stupidy failing
-
-### Deprecated
-
-### Removed
-
 
 
 ## [0.5.0] - 2020-08-28
@@ -83,12 +85,9 @@ communicate what this python module actually is.
 
 - Better defaults in `humioapi.QueryJob`
 
-### Deprecated
-
 ### Removed
 
 - Renamed `humiocore` to `humioapi`.
-
 
 
 ## [0.4.0] - 2019-11-29
@@ -98,14 +97,10 @@ communicate what this python module actually is.
 - API functions to create and poll queryjobs living in Humio. This API allows real live searches.
 - A helper class QueryJob to manage searches using queryjobs
 
-### Changed
-
 ### Fixed
 
 - Internal handling of HTTP error status codes previously lost exception details,
   these details should now be available again on the exception object.
-
-### Deprecated
 
 ### Removed
 
@@ -115,8 +110,6 @@ communicate what this python module actually is.
 
 ## [0.3.0] - 2019-09-26
 
-### Added
-
 ### Changed
 
 - The repositories API function will now return views as well
@@ -124,10 +117,6 @@ communicate what this python module actually is.
 - Signature of streaming_search() changed.
   - Live option has been removed since it should be a separate API. Humio only allows their internal "relative time" strings for live searches.
   - Start and End are now optional
-
-### Deprecated
-
-### Removed
 
 
 ## [0.2.0] - 2019-09-24

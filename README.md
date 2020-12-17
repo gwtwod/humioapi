@@ -6,19 +6,19 @@ This is an unofficial library for interacting with [Humio](https://www.humio.com
 
 ## Installation
 
-    pip install humiocli
+    pip install humioapi
 
 ## Main features
 
+* Untested and poorly documented code
+* CLI companion tool available at [humiocli](https://github.com/gwtwod/humiocli).
 * Asyncronous and syncronous streaming queries supported by `httpx`.
-* Queryjobs which can be polled once, or until completed.
+* QueryJobs which can be polled once, or until completed.
 * Chainable relative time modifiers (similar to Splunk e.g. `-1d@h-30m`).
 * List repository details (*NOTE*: normal Humio users cannot see repos without read permission).
 * Easy env-variable based configuration.
 * Ingest data to Humio, although you probably want to use Filebeat for anything other than one-off things to your sandbox.
-* CLI companion tool available at [humiocli](https://github.com/gwtwod/humiocli).
 * Create and update parsers.
-* (*PoC*) An updateable timeseries, which can follow a moving timewindow using relative modifiers, optionally querying only the changed timewindow since previous update.
 
 ## Usage
 
@@ -61,30 +61,32 @@ for event in stream:
 import asyncio
 import humioapi
 import logging
-humioapi.initialize_logging(level=logging.INFO, fmt="human")
 
+humioapi.initialize_logging(level=logging.INFO, fmt="human")
 api = humioapi.HumioAPI(**humioapi.loadenv())
+
+queries = [{
+    "query": "chad index.html | select(@timestamp)",
+    "repo": "sandbox",
+    "start": "-7d@d",
+    "stop": "-4d@d",
+    }, {
+    "query": "chad index.html | select(@rawstring)",
+    "repo": "sandbox",
+    "start": "-4d@d",
+    "stop": "now",
+}]
+
 loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 
 try:
-    asyncio.set_event_loop(loop)
-    tasks = api.async_streaming_tasks(
-        loop,
-        query="log_type=trace user=someone",
-        repos=['frontend', 'backend', 'integration'],
-        start="-1week@day",
-        stop="now",
-        concurrent_limit=10,
-    )
-
-    for event in humioapi.consume_async(loop, tasks):
-        print(event)
+    tasks = api.async_streaming_search(queries, loop=loop, concurrent_limit=10)
+    for item in humioapi.consume_async(tasks, loop):
+        print(item)
 finally:
-    try:
-        loop.run_until_complete(loop.shutdown_asyncgens())
-    finally:
-        asyncio.set_event_loop(None)
-        loop.close()
+    loop.close()
+    asyncio.set_event_loop(None)
 ```
 
 ## Jupyter Notebook
@@ -92,7 +94,7 @@ finally:
 ```python
 pew new --python=python36 humioapi
 # run the following commands inside the virtualenv
-pip install git+https://github.com/gwtwod/humio-api.git
+pip install git+https://github.com/gwtwod/humioapi.git
 pip install ipykernel seaborn matplotlib
 python -m ipykernel install --user --name 'python36-humioapi' --display-name 'Python 3.6 (venv humioapi)'
 ```
@@ -141,3 +143,7 @@ df = df.pivot(columns='metric', values='_count')
 
 sns.lineplot(data=df)
 ```
+
+## SSL and proxies
+
+All HTTP traffic is done through `httpx`, which allows customizing SSL and proxy behaviour through environment variables. See [httpx docs](https://www.python-httpx.org/environment_variables/) for details.
