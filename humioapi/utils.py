@@ -8,9 +8,9 @@ import pendulum
 import snaptime
 import datetime
 import tzlocal
+import asyncio
 from dateutil.tz import gettz
 from httpx import HTTPStatusError
-from aiostream.stream import merge as aiomerge
 from .exceptions import TimestampException
 import structlog
 
@@ -106,40 +106,48 @@ def pendulum_to_stdlib(pendulum_datetime):
     ).astimezone(tzinfo)
 
 
-def consume_async(loop, async_generators):
+def consume_async(async_generator, loop):
     """
-    Iterates over a merged stream of all the provided async generators
-    in a non-async context, yielding results as they become available.
-
-    Runs futures in the provided asyncio event loop. It is your
-    responsibility to handle creating and eventually closing of the loop.
+    Iterates the provided async generator by running it in the provided
+    eventloop, yielding the results back as soon as they become available.
+    It is your responsibility to create and eventually close the loop.
 
     Example
     -------
+    queries = [{
+        "query": "chad index.html | select(@timestamp)",
+        "repo": "sandbox",
+        "start": "-7d@d",
+        "stop": "-4d@d",
+        }, {
+        "query": "chad index.html | select(@rawstring)",
+        "repo": "sandbox",
+        "start": "-4d@d",
+        "stop": "now",
+    }]
+
     loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     try:
-        asyncio.set_event_loop(loop)
-        tasks = api.async_streaming_tasks(loop, query, repos=my_repos,concurrent_limit=10)
-        for item in api.consume_async(loop, tasks):
+        tasks = api.async_streaming_search(queries, loop=loop, concurrent_limit=10)
+        for item in humioapi.consume_async(tasks, loop):
             print(item)
     finally:
-        try:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-        finally:
-            asyncio.set_event_loop(None)
-            loop.close()
+        loop.close()
+        asyncio.set_event_loop(None)
 
     Yields
     ------
         Whatever the provided async generators decide to yield
     """
 
-    def iter_over_async(ait, loop):
-        ait = ait.__aiter__()
+    def iter_over_async(coro, loop):
+        coro = coro.__aiter__()
 
         async def get_next():
             try:
-                obj = await ait.__anext__()
+                obj = await coro.__anext__()
                 return False, obj
             except StopAsyncIteration:
                 return True, None
@@ -150,14 +158,7 @@ def consume_async(loop, async_generators):
                 break
             yield obj
 
-    async def merged_async_generators(tasks):
-        merged = aiomerge(*await tasks)
-        async with merged.stream() as streamer:
-            async for item in streamer:
-                yield item
-
-    stream = merged_async_generators(async_generators)
-    for item in iter_over_async(stream, loop):
+    for item in iter_over_async(async_generator, loop):
         yield item
 
 

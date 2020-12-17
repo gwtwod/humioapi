@@ -8,6 +8,7 @@ import time
 import tzlocal
 import httpx
 from httpx._models import Headers
+from aiostream.stream import merge as aiomerge
 import structlog
 from tqdm import tqdm
 from .utils import detailed_raise_for_status, parse_ts
@@ -237,74 +238,60 @@ class HumioAPI:
                         # Humio doesn't necessarily have any more data to send when the query has completed
                         r.close()
 
-    def async_streaming_tasks(
-        self,
-        loop,
-        query,
-        repos,
-        start="-2d@d",
-        stop="now",
-        tz_offset=0,
-        literal_time=False,
-        timeout=30,
-        concurrent_limit=10,
-    ):
+
+    def async_streaming_search(self, queries, loop, timeout=30, concurrent_limit=10):
         """
-        Prepare and return an awaitable list of async streaming search tasks,
-        each task being an asyncronous generator. Creates one task for each
-        repository using the provided asyncio eventloop.
+        Prepares and returns an async generator of merged async streaming search tasks
+        based on the queries provided as a list of dicts.
 
         Parameters
         ----------
-        loop : asyncio.AbstractEventLoop
-            An asyncio eventloop to schedule the tasks in. Required semaphore assignment.
-        query : string
-            The query string to execute against each repository
-        repos : list
-            List of repository names (strings) to query
-        start : Timestring (or any valid Humio format if literal_time=True), optional
-            Timestring to start at, see humioapi.parse_ts() for details. Default -2d@d.
-        stop : Timestring (or any valid Humio format if literal_time=True), optional
-            Timestring to stop at, see humioapi.parse_ts() for details. Default now.
-        tz_offset : int, optional
-            Timezone offset in minutes, see Humio documentation. Default 0
-        literal_time : bool, optional
-            If True, disable all parsing of the provided start and end times. Default False
+        queries : list of dicts
+            query : string
+                The query string to execute against each repository
+            repos : list
+                List of repository names (strings) to query
+            start : Timestring (or any valid Humio format if literal_time=True), optional
+                Timestring to start at, see humioapi.parse_ts() for details. Default -2d@d.
+            stop : Timestring (or any valid Humio format if literal_time=True), optional
+                Timestring to stop at, see humioapi.parse_ts() for details. Default now.
+            tz_offset : int, optional
+                Timezone offset in minutes, see Humio documentation. Default 0
+            literal_time : bool, optional
+                If True, disable all parsing of the provided start and end times. Default False
         timeout : int or httpx.Timeout, optional
             Timeout value in seconds for all httpx timeout types. By default 30 seconds.
-        concurrent_limit : int, optional
-            Number of streaming tasks to allow running concurrently.
 
         Returns:
-            list: An awaitable providing a list of async generator tasks
+            Async generator: An awaitiable yielding query results.
         """
 
-        headers = self.headers({"authorization": self.token, "accept": "application/x-ndjson"})
-        urls = [f"{self.base_url}/api/{self.api_version}/repositories/{repo}/query" for repo in repos]
-        concurrent_limiter = asyncio.Semaphore(concurrent_limit, loop=loop)
+        def prepare_request(query, repo, start="-2d@d", stop="now", tz_offset=0, literal_time=False):
+            url = f"{self.base_url}/api/{self.api_version}/repositories/{repo}/query"
 
-        start = start if literal_time else parse_ts(start)
-        stop = stop if literal_time else parse_ts(stop)
+            start = start if literal_time else parse_ts(start)
+            stop = stop if literal_time else parse_ts(stop)
 
-        payload = {
-            "queryString": query,
-            "isLive": False,
-            "timeZoneOffsetMinutes": tz_offset,
-            "start": start if literal_time else int(start.timestamp() * 1000),
-            "end": stop if literal_time else int(stop.timestamp() * 1000),
-        }
+            payload = {
+                "queryString": query,
+                "isLive": False,
+                "timeZoneOffsetMinutes": tz_offset,
+                "start": start if literal_time else int(start.timestamp() * 1000),
+                "end": stop if literal_time else int(stop.timestamp() * 1000),
+            }
 
-        logger.debug(
-            "Preparing new asyncronous streaming tasks",
-            json_payload=(json.dumps(payload)),
-            repos=repos,
-            start=start if literal_time else start.in_timezone(tzlocal.get_localzone()).isoformat(),
-            stop=stop if literal_time else stop.in_timezone(tzlocal.get_localzone()).isoformat(),
-            span="N/A" if literal_time else (stop - start).as_interval().in_words(),
-        )
+            logger.debug(
+                "Prepared new asyncronous streaming task",
+                json_payload=(json.dumps(payload)),
+                repo=repo,
+                start=start if literal_time else start.in_timezone(tzlocal.get_localzone()).isoformat(),
+                stop=stop if literal_time else stop.in_timezone(tzlocal.get_localzone()).isoformat(),
+                span="N/A" if literal_time else (stop - start).as_interval().in_words(),
+            )
+            return (url, payload)
 
         async def stream(async_client, url, payload):
-            async with concurrent_limiter:
+            async with limiter:
                 async with async_client.stream("POST", url=url, json=payload) as ar:
                     # Humio doesn't set the charset, and httpx fails to detect it properly
                     ar.headers.update({"content-type": "application/x-ndjson; charset=UTF-8"})
@@ -317,13 +304,18 @@ class HumioAPI:
                         logger.debug("Humio closed the connection prematurely", message=str(e))
                         await ar.aclose()
 
-        async def prepare_streaming_tasks(urls, headers, payload, timeout):
+        async def prepare_streaming_tasks(headers, timeout, prepared_requests):
             async with httpx.AsyncClient(headers=headers, timeout=timeout) as async_client:
-                tasks = [stream(async_client, url, payload) for url in urls]
-                return tasks
+                awaitables = [stream(async_client, url, payload) for url, payload in prepared_requests]
+                async with aiomerge(*awaitables).stream() as streamer:
+                    async for item in streamer:
+                        yield(item)
 
-        return prepare_streaming_tasks(urls, headers=headers, payload=payload, timeout=timeout)
-
+        limiter = asyncio.Semaphore(concurrent_limit, loop=loop)
+        headers = self.headers({"authorization": self.token, "accept": "application/x-ndjson"})
+        prepared_requests = [prepare_request(**querydata) for querydata in queries]
+        return prepare_streaming_tasks(headers=headers, timeout=timeout, prepared_requests=prepared_requests)
+        
     def ingest_unstructured(self, events=None, fields=None, soft_limit=2 ** 20, dry=False):
         """
         TODO: Doesn't support 'content-encoding': 'gzip' yet
