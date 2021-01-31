@@ -1,6 +1,5 @@
 # Changelog
 
-
 ## [Unreleased]
 
 ### Added
@@ -13,6 +12,15 @@
 
 ### Removed
 
+
+## [0.7.0] - 2021-01-31
+
+### Changed
+
+- Changed all syncronous requests through `httpx` to use urllib3 as networking backend rather than `httpcore` as a 
+temporary solution, since the humio-search-all and graphql endpoints started giving random HTTP 502s since Humio 1.18.
+Will probably revert in the future when I can figure out whats up.
+- Changed the `humioapi.loadenv()` helper to accept iterables of envs and prefixes as well as the old strings.
 
 ## [0.6.2] - 2020-12-17
 

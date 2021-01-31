@@ -9,10 +9,11 @@ import tzlocal
 import httpx
 from httpx._models import Headers
 from aiostream.stream import merge as aiomerge
-import structlog
 from tqdm import tqdm
+from .urllib3_transport import URLLib3Transport
 from .utils import detailed_raise_for_status, parse_ts
 from .exceptions import HumioAPIException
+import structlog
 
 logger = structlog.getLogger(__name__)
 
@@ -106,7 +107,7 @@ class HumioAPI:
             span="N/A" if literal_time else (stop - start).as_interval().in_words(),
         )
 
-        with httpx.Client(headers=headers, timeout=timeout) as client:
+        with httpx.Client(headers=headers, timeout=timeout, transport=URLLib3Transport()) as client:
             queryjob = client.post(url, json=payload)
             detailed_raise_for_status(queryjob)
         return queryjob.json()
@@ -153,7 +154,7 @@ class HumioAPI:
         headers = self.headers({"authorization": self.token, "accept": "application/json"})
         url = f"{self.base_url}/api/{self.api_version}/repositories/{repo}/queryjobs/{job_id}"
 
-        with httpx.Client(headers=headers, timeout=timeout) as client:
+        with httpx.Client(headers=headers, timeout=timeout, transport=URLLib3Transport()) as client:
             queryjob = client.get(url)
             detailed_raise_for_status(queryjob)
         return queryjob.json()
@@ -168,7 +169,7 @@ class HumioAPI:
         headers = self.headers({"authorization": self.token, "accept": "application/json"})
         url = f"{self.base_url}/api/{self.api_version}/repositories/{repo}/queryjobs/{job_id}"
 
-        with httpx.Client(headers=headers, timeout=timeout) as client:
+        with httpx.Client(headers=headers, timeout=timeout, transport=URLLib3Transport()) as client:
             queryjob = client.delete(url)
             detailed_raise_for_status(queryjob)
         return queryjob.status_code
@@ -224,7 +225,7 @@ class HumioAPI:
             span="N/A" if literal_time else (stop - start).as_interval().in_words(),
         )
 
-        with httpx.Client(headers=headers, timeout=timeout) as client:
+        with httpx.Client(headers=headers, timeout=timeout, transport=URLLib3Transport()) as client:
             for url in urls:
                 with client.stream("POST", url=url, json=payload) as r:
                     # Humio doesn't set the charset, and httpx fails to detect it properly
@@ -315,7 +316,7 @@ class HumioAPI:
         headers = self.headers({"authorization": self.token, "accept": "application/x-ndjson"})
         prepared_requests = [prepare_request(**querydata) for querydata in queries]
         return prepare_streaming_tasks(headers=headers, timeout=timeout, prepared_requests=prepared_requests)
-        
+
     def ingest_unstructured(self, events=None, fields=None, soft_limit=2 ** 20, dry=False):
         """
         TODO: Doesn't support 'content-encoding': 'gzip' yet
@@ -354,7 +355,7 @@ class HumioAPI:
                 logger.debug("Ingestion request prepared", json_payload=json.dumps(payload))
 
                 if not dry:
-                    with httpx.Client(headers=headers) as client:
+                    with httpx.Client(headers=headers, transport=URLLib3Transport()) as client:
                         req = client.post(url, json=payload)
                         detailed_raise_for_status(req)
 
@@ -399,7 +400,7 @@ class HumioAPI:
                     }
                 }"""
 
-        with httpx.Client(headers=headers) as client:
+        with httpx.Client(headers=headers, transport=URLLib3Transport()) as client:
             req = client.post(url, json={"query": query})
             detailed_raise_for_status(req)
 
@@ -481,7 +482,7 @@ class HumioAPI:
                         }}
                     }}"""
 
-            with httpx.Client(headers=headers) as client:
+            with httpx.Client(headers=headers, transport=URLLib3Transport()) as client:
                 req = client.post(url, json={"query": get})
                 detailed_raise_for_status(req)
 
@@ -494,7 +495,7 @@ class HumioAPI:
             existing_parser = existing_repo["repository"].get("parser")
             if not existing_parser:
                 logger.info("Creating new parser", repo=repo, parser=parser)
-                with httpx.Client(headers=headers) as client:
+                with httpx.Client(headers=headers, transport=URLLib3Transport()) as client:
                     req = httpx.post(url, json={"query": create})
                     detailed_raise_for_status(req)
                 response = req.json()
@@ -511,7 +512,7 @@ class HumioAPI:
                 if old_source != source:
                     logger.info("Updating existing parser", repo=repo, parser=parser)
 
-                    with httpx.Client(headers=headers) as client:
+                    with httpx.Client(headers=headers, transport=URLLib3Transport()) as client:
                         req = client.post(url, json={"query": update})
                         detailed_raise_for_status(req)
 

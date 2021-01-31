@@ -2,7 +2,7 @@
 
 > This project requires `Python>=3.6.1`
 
-This is an unofficial library for interacting with [Humio](https://www.humio.com/)'s API. If you're looking for the official Python Humio library it can be found [here: humiolib](https://github.com/humio/python-humio). This library mostly exists because the official library was very basic back in 2019 when I first needed this.
+This is an unofficial library for interacting with [Humio](https://www.humio.com/)'s API. If you're looking for the official Python Humio library it can be found [here: humiolib](https://github.com/humio/python-humio). This library mostly exists because the official library was very basic back in 2019 when I first needed this. You probably want the official lib instead.
 
 ## Installation
 
@@ -22,7 +22,9 @@ This is an unofficial library for interacting with [Humio](https://www.humio.com
 
 ## Usage
 
-For convenience your Humio URL and token should be set in the environment variables `HUMIO_BASE_URL` and `HUMIO_TOKEN`. These can be set in `~/.config/humio/.env` and loaded by `humioapi.loadenv()`.
+For convenience your Humio URL and tokens should be set in the environment variables `HUMIO_BASE_URL` and `HUMIO_TOKEN`.
+These can be set in `~/.config/humio/.env` and loaded through `humioapi.loadenv()`, which loads all `HUMIO_`-prefixed
+variables found in the env-file.
 
 ## Query repositories
 
@@ -147,3 +149,5 @@ sns.lineplot(data=df)
 ## SSL and proxies
 
 All HTTP traffic is done through `httpx`, which allows customizing SSL and proxy behaviour through environment variables. See [httpx docs](https://www.python-httpx.org/environment_variables/) for details.
+
+>This is unavailable since 0.7.* due to switching to urllib3 as networking backend to solve a problem with random HTTP 502s from the graphql/humio-search-all endpoints.
