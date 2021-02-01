@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "humioapi"
-version = "0.6.2"
+version = "0.7.0"
 description = "An unofficial Python library for easy interaction with the Humio API"
 authors = ["Jostein Haukeli"]
 repository = "https://github.com/gwtwod/humioapi"
@@ -23,6 +23,7 @@ httpx = "^0.16.1"
 colorama = "^0.4.4"
 aiostream = "^0.4.1"
 pandas = {version = "^1.1.5", optional = true}
+urllib3 = "^1.26.3"
 
 [tool.poetry.dev-dependencies]
 black = {version = "*", allow-prereleases = true}
