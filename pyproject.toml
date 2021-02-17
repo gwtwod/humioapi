@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "humioapi"
-version = "0.8.0"
+version = "0.8.1"
 description = "An unofficial Python library wrapping the official humiolib to provide extra helpers and utility functions"
 authors = ["Jostein Haukeli"]
 repository = "https://github.com/gwtwod/humioapi"
