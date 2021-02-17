@@ -1,29 +1,30 @@
 # Humio API (unofficial lib)
 
-> This project requires `Python>=3.6.1`
+> 💡 This project requires `Python>=3.6.1`
 
-This is an unofficial library for interacting with [Humio](https://www.humio.com/)'s API. If you're looking for the official Python Humio library it can be found [here: humiolib](https://github.com/humio/python-humio). This library mostly exists because the official library was very basic back in 2019 when I first needed this. You probably want the official lib instead.
+> 💡 This is not the official Humio library. It can be found [here: humiolib](https://github.com/humio/python-humio).
+
+This is an unofficial library for interacting with [Humio](https://www.humio.com/)'s API. This library mostly exists now because the official library was too basic back in 2019 when I first needed this. Currently this library is just a wrapper around `humiolib` to implement some convenient and opinionated helpers.
 
 ## Installation
 
-    pip install humioapi
+```bash
+pip install humioapi
+```
 
-## Main features
+## Main features/extensions
 
-* Untested and poorly documented code
-* CLI companion tool available at [humiocli](https://github.com/gwtwod/humiocli).
-* Asyncronous and syncronous streaming queries supported by `httpx`.
-* QueryJobs which can be polled once, or until completed.
-* Chainable relative time modifiers (similar to Splunk e.g. `-1d@h-30m`).
+* CLI companion tool `hc` available at [humiocli](https://github.com/gwtwod/humiocli).
+* Monkeypatched QueryJobs with a `poll_safe` method that can return or raise warnings.
+* Relative time modifiers similar to Splunk (`-7d@d` to start at midnight 7 days ago). Can also be chained (`-1d@h-30m`). [Source](https://github.com/zartstrom/snaptime).
 * List repository details (*NOTE*: normal Humio users cannot see repos without read permission).
 * Easy env-variable based configuration.
-* Ingest data to Humio, although you probably want to use Filebeat for anything other than one-off things to your sandbox.
 * Create and update parsers.
 
 ## Usage
 
 For convenience your Humio URL and tokens should be set in the environment variables `HUMIO_BASE_URL` and `HUMIO_TOKEN`.
-These can be set in `~/.config/humio/.env` and loaded through `humioapi.loadenv()`, which loads all `HUMIO_`-prefixed
+These can be set in `~/.config/humio/.env` and loaded through `humioapi.humio_loadenv()`, which loads all `HUMIO_`-prefixed
 variables found in the env-file.
 
 ## Query repositories
@@ -35,7 +36,7 @@ import humioapi
 import logging
 humioapi.initialize_logging(level=logging.INFO, fmt="human")
 
-api = humioapi.HumioAPI(**humioapi.loadenv())
+api = humioapi.HumioAPI(**humioapi.humio_loadenv())
 repositories = api.repositories()
 ```
 
@@ -46,10 +47,10 @@ import humioapi
 import logging
 humioapi.initialize_logging(level=logging.INFO, fmt="human")
 
-api = humioapi.HumioAPI(**humioapi.loadenv())
+api = humioapi.HumioAPI(**humioapi.humio_loadenv())
 stream = api.streaming_search(
-    query="log_type=trace user=someone",
-    repos=['frontend', 'backend', 'integration'],
+    query="",
+    repo='sandbox',
     start="-1week@day",
     stop="now"
 )
@@ -57,38 +58,20 @@ for event in stream:
     print(event)
 ```
 
-## Itreate over asyncronous streaming searches in parallell, from a syncronous context
+## Create pollable QueryJobs with results, metadata and warnings (raised by default)
 
 ```python
-import asyncio
 import humioapi
 import logging
-
 humioapi.initialize_logging(level=logging.INFO, fmt="human")
-api = humioapi.HumioAPI(**humioapi.loadenv())
 
-queries = [{
-    "query": "chad index.html | select(@timestamp)",
-    "repo": "sandbox",
-    "start": "-7d@d",
-    "stop": "-4d@d",
-    }, {
-    "query": "chad index.html | select(@rawstring)",
-    "repo": "sandbox",
-    "start": "-4d@d",
-    "stop": "now",
-}]
+api = humioapi.HumioAPI(**humioapi.humio_loadenv())
+qj = api.create_queryjob(query="", repo="sandbox", start="-7d@d")
 
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-
-try:
-    tasks = api.async_streaming_search(queries, loop=loop, concurrent_limit=10)
-    for item in humioapi.consume_async(tasks, loop):
-        print(item)
-finally:
-    loop.close()
-    asyncio.set_event_loop(None)
+result = qj.poll_safe(raise_warnings=False)
+if result.warnings:
+    print("Oh no!", result.warnings)
+print(result.metadata)
 ```
 
 ## Jupyter Notebook
@@ -110,8 +93,8 @@ import humioapi
 import logging
 humioapi.initialize_logging(level=logging.INFO, fmt="human")
 
-api = humioapi.HumioAPI(**humioapi.loadenv())
-results = api.streaming_search(query='log_type=trace user=someone', repos=['frontend', 'backend'], start="@d", stop="now")
+api = humioapi.HumioAPI(**humioapi.humio_loadenv())
+results = api.streaming_search(query="", repo="sandbox", start="@d", stop="now")
 for i in results:
     print(i)
 ```
@@ -133,7 +116,7 @@ import pandas as pd
 sns.set(color_codes=True)
 sns.set_style('darkgrid')
 
-results = api.streaming_search(query='log_type=stats | timechart(series=metric)', repos=['frontend'], start=start, stop=stop)
+results = api.streaming_search(query=" | timechart()", repos=["sandbox"], start=start, stop=stop)
 df = pd.DataFrame(results)
 df['_count'] = df['_count'].astype(float)
 
@@ -148,6 +131,4 @@ sns.lineplot(data=df)
 
 ## SSL and proxies
 
-All HTTP traffic is done through `httpx`, which allows customizing SSL and proxy behaviour through environment variables. See [httpx docs](https://www.python-httpx.org/environment_variables/) for details.
-
->This is unavailable since 0.7.* due to switching to urllib3 as networking backend to solve a problem with random HTTP 502s from the graphql/humio-search-all endpoints.
+All HTTP traffic is done through `humiolib` which currently uses `requests` internally. You can probably use custom certificates with the env variable `REQUESTS_CA_BUNDLE`, or pass extra argument as `kwargs` to the various API functions.

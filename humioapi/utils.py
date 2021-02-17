@@ -8,10 +8,9 @@ import pendulum
 import snaptime
 import datetime
 import tzlocal
-import asyncio
 from dateutil.tz import gettz
-from httpx import HTTPStatusError
-from .exceptions import TimestampException
+from .exceptions import HumioTimestampException
+from requests.exceptions import HTTPError
 import structlog
 
 logger = structlog.getLogger(__name__)
@@ -81,7 +80,9 @@ def parse_ts(timestamp, stdlib=False):
         # Not a valid millisecond-epoch
         pass
 
-    raise TimestampException(f"Could not understand the provided timestamp ({timestamp}). Try something less ambigous?")
+    raise HumioTimestampException(
+        f"Could not understand the provided timestamp ({timestamp}). Try something less ambigous?"
+    )
 
 
 def pendulum_to_stdlib(pendulum_datetime):
@@ -106,80 +107,25 @@ def pendulum_to_stdlib(pendulum_datetime):
     ).astimezone(tzinfo)
 
 
-def consume_async(async_generator, loop):
-    """
-    Iterates the provided async generator by running it in the provided
-    eventloop, yielding the results back as soon as they become available.
-    It is your responsibility to create and eventually close the loop.
-
-    Example
-    -------
-    queries = [{
-        "query": "chad index.html | select(@timestamp)",
-        "repo": "sandbox",
-        "start": "-7d@d",
-        "stop": "-4d@d",
-        }, {
-        "query": "chad index.html | select(@rawstring)",
-        "repo": "sandbox",
-        "start": "-4d@d",
-        "stop": "now",
-    }]
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    try:
-        tasks = api.async_streaming_search(queries, loop=loop, concurrent_limit=10)
-        for item in humioapi.consume_async(tasks, loop):
-            print(item)
-    finally:
-        loop.close()
-        asyncio.set_event_loop(None)
-
-    Yields
-    ------
-        Whatever the provided async generators decide to yield
-    """
-
-    def iter_over_async(coro, loop):
-        coro = coro.__aiter__()
-
-        async def get_next():
-            try:
-                obj = await coro.__anext__()
-                return False, obj
-            except StopAsyncIteration:
-                return True, None
-
-        while True:
-            done, obj = loop.run_until_complete(get_next())
-            if done:
-                break
-            yield obj
-
-    for item in iter_over_async(async_generator, loop):
-        yield item
-
-
 def detailed_raise_for_status(res, truncate=400):
     """
-    Take a httpx response object and expand the raise_for_status method
-    to return more helpful errors containing the response body. Beware that
-    any sensitive details contained in the response body will be leaked.
+    Take a requests response object and expand the raise_for_status method
+    to return more helpful errors containing the response body.
+
+    Beware that any sensitive details in the response body will be leaked.
 
     By default response bodies are truncated to 400 characters.
     """
 
     try:
         res.raise_for_status()
-    except HTTPStatusError as exc:
+    except HTTPError as exc:
         if hasattr(res, "text") and res.text:
             details = f"Response body: {str(res.text)}"
             details = (details[:truncate] + "..") if len(details) > truncate else details
-            # Raise <exception> from None means we don't get the extra context clutter
-            # from raising a new exception inside the try-except block
-            raise HTTPStatusError(f"{exc}. {details}", request=res.request, response=res) from None
+            # Raise <exception> from None means we don't get the extra context from raising
+            # a new exception inside the try-except block
+            raise HTTPError(f"{exc}. {details}") from None
         else:
             raise exc
 

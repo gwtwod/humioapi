@@ -13,14 +13,36 @@
 ### Removed
 
 
+## [0.8.0] - 2021-02-17
+
+### Changed
+
+From this release, this is merely a wrapper around the official humiolib to provide some opiniated helpers and APIs,
+mainly improved timestamp parsing and `env` based config.
+
+This also means all HTTP requests are now done through `requests` rather than `httpx`, since thats what `humiolib` uses.
+
+### Removed
+
+- Asyncronous APIs, since `requests` only has syncronous support.
+- All timeout options for all APIs, but you can pass stuff to `requests` directly through `kwargs`.
+
+## Changed
+
+- Renamed `loadenv` to `humio_loadenv`, and added a more general `humio_loadenv`.
+- `loadenv` and `humio_loadenv` can now accept multiple prefixes and config files.
+- Streaming search now only allows one repo. Use `humio-search-all` or a `view` if you need more repos at once.
+
+
 ## [0.7.0] - 2021-01-31
 
 ### Changed
 
-- Changed all syncronous requests through `httpx` to use urllib3 as networking backend rather than `httpcore` as a 
+- Changed all syncronous requests through `httpx` to use urllib3 as networking backend rather than `httpcore` as a
 temporary solution, since the humio-search-all and graphql endpoints started giving random HTTP 502s since Humio 1.18.
 Will probably revert in the future when I can figure out whats up.
 - Changed the `humioapi.loadenv()` helper to accept iterables of envs and prefixes as well as the old strings.
+
 
 ## [0.6.2] - 2020-12-17
 

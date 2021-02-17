@@ -1,47 +1,45 @@
 import os
-from pathlib import Path
-
+from pathlib import PurePath, Path
 from dotenv import load_dotenv
 
 
-def loadenv(env=None, prefix="HUMIO_"):
+def loadenv(env=None, prefix=None):
     """
     Load all environment variables from the specified `env` file into `os.environ`
     and return a dict of the variables matching the provided `prefix`.
 
     The key names will be lower case with the prefix stripped for ease of use as kwargs.
-
     The env file can have comments, and allows variables prefixed with `soruce`, which
     will be ignored but allow easily sourcing the file in your shell.
 
-    Bare variables ($HOME) are not expanded, but ${HOME} will be expanded.
+    Bare variables like `$HOME` are not expanded, but `${HOME}` will be.
 
     Parameters
     ----------
-
     env: string or list of strings
-        Path to env file(s) to load. Default `~/.config/humio/.env`.
+        Path to env file(s) to load.
     prefix: string or list of strings
-        Prefix of env variables to load from the env files. Default `HUMIO_`.
+        Prefix of env variables to load from the env files.
 
-    Returns:
+    Returns
+    -------
         A dict with all relevant env variables loaded.
     """
+
+    config = {}
+
+    if env is None or isinstance(env, (str, PurePath)):
+        env = [env]
 
     if prefix is None or isinstance(prefix, str):
         prefix = [prefix]
 
-    if env is None or isinstance(env, str):
-        env = [env]
-
-    config = {}
-
     # source all env variables
-    for e in env:
-        for p in prefix:
-            load(env=e, prefix=p)
+    for env_file in env:
+        expanded_path = Path(env_file).expanduser()
+        load_dotenv(dotenv_path=expanded_path)
 
-    # find all relevant loaded env variables
+    # find all relevant sourced env variables
     for key in os.environ.keys():
         for p in prefix:
             if key.startswith(p):
@@ -51,16 +49,12 @@ def loadenv(env=None, prefix="HUMIO_"):
     return config
 
 
-def load(env=None, prefix=None):
-    """Loads all variables from an env file"""
-
-    if env is None:
-        env = Path.home() / ".config/humio/.env"
-    load_dotenv(dotenv_path=env)
+def humio_loadenv(env="~/.config/humio/.env", prefix="HUMIO_"):
+    """Call loadenv with the default config file and default env prefix"""
+    return loadenv(env=env, prefix=prefix)
 
 
 def removeprefix(s, prefix):
     if s.startswith(prefix):
-        return s[len(prefix):]
+        return s[len(prefix) :]
     return s
-
