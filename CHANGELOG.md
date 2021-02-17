@@ -12,6 +12,12 @@
 
 ### Removed
 
+## [0.8.1] - 2021-02-17
+
+### Fixed
+
+- Add humiolib dependency to pyproject.toml.
+
 
 ## [0.8.0] - 2021-02-17
 

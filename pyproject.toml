@@ -17,10 +17,10 @@ structlog = "^20.1.0"
 tzlocal = "^2.1"
 chardet = "^4.0.0"
 python-dotenv = "^0.15.0"
-tqdm = "^4.54.1"
 pendulum = "^2.1.2"
 colorama = "^0.4.4"
 pandas = {version = "^1.1.5", optional = true}
+humiolib = "^0.2.2"
 
 [tool.poetry.dev-dependencies]
 black = {version = "*", allow-prereleases = true}
