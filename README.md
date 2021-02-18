@@ -58,7 +58,7 @@ for event in stream:
     print(event)
 ```
 
-## Create pollable QueryJobs with results, metadata and warnings (raised by default)
+## Create a pollable QueryJob with results, metadata and warnings (raised by default)
 
 ```python
 import humioapi

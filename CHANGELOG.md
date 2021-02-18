@@ -12,6 +12,12 @@
 
 ### Removed
 
+## [0.8.2] - 2021-02-18
+
+### Fixed
+
+- Add back `dry` and `soft_limit` to `ingest_unstructured()`
+
 ## [0.8.1] - 2021-02-17
 
 ### Fixed

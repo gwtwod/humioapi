@@ -48,7 +48,7 @@ class HumioAPI:
         literal_time : bool, optional
             If True, disable all parsing of the provided start and end times, by default False
         **kwargs :
-            Optional parameters are forwarded to the requests-call.
+            Optional parameters forwarded to the humiolib/requests-call
 
         Returns
         -------
@@ -109,7 +109,7 @@ class HumioAPI:
         literal_time : bool, optional
             If True, disable all parsing of the provided start and end times. Default False
         **kwargs :
-            Optional parameters are forwarded to the requests-call.
+            Optional parameters forwarded to the humiolib/requests-call
 
         Yields:
             dict: The event fields
@@ -139,10 +139,14 @@ class HumioAPI:
         for event in client.streaming_query(**{**payload, **kwargs}):
             yield event
 
-    def ingest_unstructured(self, events=None, parser=None, fields=None, tags=None, dry=False, **kwargs):
+    def ingest_unstructured(self, events, parser=None, fields=None, tags=None, soft_limit=2 ** 20, dry=False, **kwargs):
         """
-        Send the provided list of events to humio for ingestion.
+        Send the provided iterable of events to humio for ingestion in batches
+        controlled by the soft limit. If an event is too large to fit the soft
+        limit it will still be sent (alone) and throw a warning.
 
+        Parameters
+        ----------
         events : list
             List of events (strings) to ingest
         parser : str
@@ -151,14 +155,50 @@ class HumioAPI:
             Fields to add to each ingested event
         tags : dict
             Tags to add to each ingested event
+        soft_limit : int
+            A soft limit to use when calculating batch sizes (string length)
+        dry : boolean
+            If true, no events will actually be sent to Humio
         **kwargs :
-            Optional parameters are forwarded to the requests-call.
+            Optional parameters forwarded to the humiolib/requests-call
         """
+
+        if dry:
+            logger.warn("Running in dry mode, no events will be ingested")
+
+        def ingest(events, parser=None, fields=None, tags=None, dry=False, **kwargs):
+            batch_size = len("".join(events))
+            if batch_size >= soft_limit:
+                logger.warn("An event exceeds the soft limit", batch_size=batch_size, soft_limit=soft_limit)
+            logger.info("Sending", events=len(events), batch_size=batch_size, parser=parser, fields=fields, tags=tags)
+
+            if batch_size > 0 and not dry:
+                client.ingest_messages(messages=events, parser=parser, fields=fields, tags=tags, **kwargs)
+
         client = HumioIngestClient(base_url=self.base_url, ingest_token=self.ingest_token)
-        client.ingest_messages(messages=events, parser=parser, fields=fields, tags=tags, **kwargs)
+
+        buffer = []
+        for event in events:
+            if len("".join(buffer)) + len(event) >= soft_limit:
+                # if adding the next message would exceed the soft_limit, we can send and clear the buffer
+                ingest(events=buffer, parser=parser, fields=fields, tags=tags, dry=dry, **kwargs)
+                del buffer[:]
+            buffer.append(event)
+        ingest(events=buffer, parser=parser, fields=fields, tags=tags, dry=dry, **kwargs)
 
     def repositories(self, **kwargs):
-        """Returns a dictionary of repositories and views"""
+        """
+        Returns a dictionary of repositories and views
+
+        Parameters
+        ----------
+        **kwargs :
+            Optional parameters forwarded to the humiolib/requests-call
+
+        Returns
+        ----------
+            dict: Metadata for all discovered repositories
+        """
 
         client = HumioClient(base_url=self.base_url, repository="unused", user_token=self.token)
         headers = client._default_user_headers

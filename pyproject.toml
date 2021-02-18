@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "humioapi"
-version = "0.8.1"
+version = "0.8.2"
 description = "An unofficial Python library wrapping the official humiolib to provide extra helpers and utility functions"
 authors = ["Jostein Haukeli"]
 repository = "https://github.com/gwtwod/humioapi"
@@ -13,7 +13,7 @@ packages = [
 [tool.poetry.dependencies]
 python = "^3.6.1"
 snaptime = "^0.2.4"
-structlog = "^20.1.0"
+structlog = "^20.2.0"
 tzlocal = "^2.1"
 chardet = "^4.0.0"
 python-dotenv = "^0.15.0"
