@@ -15,7 +15,9 @@ pip install humioapi
 ## Main features/extensions
 
 * CLI companion tool `hc` available at [humiocli](https://github.com/gwtwod/humiocli).
-* Monkeypatched QueryJobs with a `poll_safe` method that can return or raise warnings.
+* Monkeypatched QueryJobs with a different approach.
+    * The `poll` method is now a generator yielding the current result until the query completes, with optional progress information and warnings.
+    * The `poll_until_done` method now simply returns the final result of the `poll` method in an efficient manner, which solves the problem the original poll method has with getting stuck forever in some cases.
 * Relative time modifiers similar to Splunk (`-7d@d` to start at midnight 7 days ago). Can also be chained (`-1d@h-30m`). [Source](https://github.com/zartstrom/snaptime).
 * List repository details (*NOTE*: normal Humio users cannot see repos without read permission).
 * Easy env-variable based configuration.
@@ -27,14 +29,12 @@ For convenience your Humio URL and tokens should be set in the environment varia
 These can be set in `~/.config/humio/.env` and loaded through `humioapi.humio_loadenv()`, which loads all `HUMIO_`-prefixed
 variables found in the env-file.
 
-## Query repositories
+## Query available repositories
 
 Create an instance of HumioAPI to get started
 
 ```python
 import humioapi
-import logging
-humioapi.initialize_logging(level=logging.INFO, fmt="human")
 
 api = humioapi.HumioAPI(**humioapi.humio_loadenv())
 repositories = api.repositories()
@@ -44,8 +44,6 @@ repositories = api.repositories()
 
 ```python
 import humioapi
-import logging
-humioapi.initialize_logging(level=logging.INFO, fmt="human")
 
 api = humioapi.HumioAPI(**humioapi.humio_loadenv())
 stream = api.streaming_search(
@@ -62,16 +60,22 @@ for event in stream:
 
 ```python
 import humioapi
-import logging
-humioapi.initialize_logging(level=logging.INFO, fmt="human")
 
 api = humioapi.HumioAPI(**humioapi.humio_loadenv())
 qj = api.create_queryjob(query="", repo="sandbox", start="-7d@d")
 
-result = qj.poll_safe(raise_warnings=False)
+# Poll the QueryJob and get its final results
+result = qj.poll_until_done(warn=False)
 if result.warnings:
-    print("Oh no!", result.warnings)
+    print("Oh no, a problem has occured!", result.warnings)
 print(result.metadata)
+
+# Or manually iterate the current results until the QueryJob has completed
+for current_result in qj.poll(warn=False):
+    pass
+if current_result.warnings:
+    print("Oh no, a problem has occured!", current_result.warnings)
+print(current_result.metadata)
 ```
 
 ## Jupyter Notebook
@@ -90,8 +94,6 @@ Run this code to get started:
 
 ```python
 import humioapi
-import logging
-humioapi.initialize_logging(level=logging.INFO, fmt="human")
 
 api = humioapi.HumioAPI(**humioapi.humio_loadenv())
 results = api.streaming_search(query="", repo="sandbox", start="@d", stop="now")
@@ -127,6 +129,18 @@ df.index = df.index.tz_convert('Europe/Oslo')
 df = df.pivot(columns='metric', values='_count')
 
 sns.lineplot(data=df)
+```
+
+## Logging
+
+This library uses the excellent structlog library. If you're want pretty formatted logs but are too lazy to configure it yourself, you can use the included helper to configure it.
+
+This helper also installs an exception hook to log all unhandled exceptions through structlog.
+
+```python
+import logging
+
+humioapi.initialize_logging(level=logging.INFO, fmt="human")  # or fmt="json"
 ```
 
 ## SSL and proxies

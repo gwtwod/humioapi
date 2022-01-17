@@ -9,7 +9,7 @@ import structlog
 from humiolib.HumioClient import HumioClient, HumioIngestClient
 from humiolib.QueryJob import StaticQueryJob
 from .utils import parse_ts
-from .monkeypatch import patched_poll_until_done, poll_safe
+from .monkeypatch import poll_until_done, poll
 
 logger = structlog.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class HumioAPI:
 
         Returns
         -------
-            A pollable monkey-patched humiolib QueryJob also providing `poll_safe`
+            A pollable monkey-patched humiolib QueryJob providing `poll()` as a generator function.
         """
 
         if live:
@@ -83,11 +83,13 @@ class HumioAPI:
         client = HumioClient(base_url=self.base_url, repository=repo, user_token=self.token)
         queryjob = client.create_queryjob(**{**payload, **kwargs})
 
-        if isinstance(queryjob, StaticQueryJob):
-            # StaticQueryJob.poll_until_done can get stuck polling forever, so disabling it
-            # See: https://github.com/humio/python-humio/issues/14
-            queryjob.poll_until_done = types.MethodType(patched_poll_until_done, queryjob)
-        queryjob.poll_safe = types.MethodType(poll_safe, queryjob)
+        # The original poll() actually polls continously until done, not once as the name might imply.
+        # Replace it with a generator instead, polling on each iteration and returning the current result.
+        queryjob.poll = types.MethodType(poll, queryjob)
+
+        # The original poll_until_done() can get stuck polling forever (https://github.com/humio/python-humio/issues/14)
+        # Replace it with a simple helper method to return the final poll result in an efficient manner.
+        queryjob.poll_until_done = types.MethodType(poll_until_done, queryjob)
         return queryjob
 
     def streaming_search(self, query, repo, start="-2d@d", stop="now", tz_offset=0, literal_time=False, **kwargs):
@@ -347,3 +349,4 @@ class HumioAPI:
                     result["unchanged"].append(repo)
 
         return result
+

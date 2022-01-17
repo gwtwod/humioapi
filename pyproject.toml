@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "humioapi"
-version = "0.8.2"
+version = "0.9.0"
 description = "An unofficial Python library wrapping the official humiolib to provide extra helpers and utility functions"
 authors = ["Jostein Haukeli"]
 repository = "https://github.com/gwtwod/humioapi"
@@ -21,6 +21,7 @@ pendulum = "^2.1.2"
 colorama = "^0.4.4"
 pandas = {version = "^1.1.5", optional = true}
 humiolib = "^0.2.2"
+tqdm = "^4.62.3"
 
 [tool.poetry.dev-dependencies]
 black = {version = "*", allow-prereleases = true}

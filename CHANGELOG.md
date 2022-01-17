@@ -1,5 +1,6 @@
 # Changelog
 
+
 ## [Unreleased]
 
 ### Added
@@ -11,6 +12,23 @@
 ### Deprecated
 
 ### Removed
+
+
+## [0.9.0] - 2022-01-17
+
+### Added
+
+- Add optional progress bars (from tqdm) to QueryJob polling. These can be disabled by setting `progress=False` when polling.
+
+### Changed
+
+- Changed the QueryJob `poll()` function to be a generator, yielding the current query result until done. The previous version was the original from `humiolib`, which continously polled internally and returned the final result on completion.
+- Changed the QueryJob `poll_until_done()` function to access the final result of a QueryJob, similar to the original `poll()`. The original was disabled, due to a bug with infinite polling in the original from `humiolib`.
+- The `raise_warnings` parameter when polling QueryJobs was renamed to to `warn`, and available in `poll()` and `poll_until_done()`.
+
+### Removed
+
+- Removed `QueryJob.poll_safe()` in favor of the `poll()` and `poll_until_done()` functions. These should make it easier to access the current result, including progress information before the query completes.
 
 ## [0.8.2] - 2021-02-18
 
