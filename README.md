@@ -1,6 +1,6 @@
 # Humio API (unofficial lib)
 
-> 💡 This project requires `Python>=3.6.1`
+> 💡 This project requires `Python>=3.8`
 
 > 💡 This is not the official Humio library. It can be found [here: humiolib](https://github.com/humio/python-humio).
 
@@ -81,11 +81,11 @@ print(current_result.metadata)
 ## Jupyter Notebook
 
 ```python
-pew new --python=python36 humioapi
+pew new --python=python38 humioapi
 # run the following commands inside the virtualenv
 pip install git+https://github.com/gwtwod/humioapi.git
 pip install ipykernel seaborn matplotlib
-python -m ipykernel install --user --name 'python36-humioapi' --display-name 'Python 3.6 (venv humioapi)'
+python -m ipykernel install --user --name 'python38-humioapi' --display-name 'Python 3.8 (venv humioapi)'
 ```
 
 Start the notebook by running `jupyter-notebook` and choose the newly created kernel when creating a new notebook.

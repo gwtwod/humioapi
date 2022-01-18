@@ -14,6 +14,13 @@
 ### Removed
 
 
+## [0.10.0] - 2022-01-18
+
+This version bumps the minimum Python version to 3.8, as 3.6 is EOL. Also relaxes dependency version to allow any version greater than what has been tested.
+
+This might cause problems if a library introduces breaking changes in the future, but should allow more flexibility for the end user to specify version constraints, as this is a library.
+
+
 ## [0.9.0] - 2022-01-17
 
 ### Added
