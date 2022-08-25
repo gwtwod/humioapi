@@ -11,6 +11,7 @@
 
 - `HumioAPI.repositories` now accepts a `fast=False` parameter. When set to True, only basic information is returned for each repository/view. This helps in environments with thousands of repositories which would otherwise take a long time to fetch.
 - Changed graphql queries for repositories and parsers to be in line with Humio version 1.42.1 graphql endpoints
+- Replaced pendulum to native datetime helper with C-optimized version available since Python 3.7
 
 ### Fixed
 

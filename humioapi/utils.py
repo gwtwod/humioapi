@@ -89,22 +89,11 @@ def pendulum_to_stdlib(pendulum_datetime):
     """
     Helper function to convert Pendulum.datetime to stdlib datetime.datetime
     since Pandas doesn't play well with Pendulum.
-    See: https://github.com/sdispater/pendulum/pull and
+    See: https://github.com/sdispater/pendulum/pull/485 and
          https://github.com/pandas-dev/pandas/issues/15986
     """
 
-    # Could just use C-optimized .fromisoformat() and .isoformat() in py3.7
-    tzinfo = gettz(pendulum_datetime.tzinfo.name)
-    return datetime.datetime(
-        year=pendulum_datetime.year,
-        month=pendulum_datetime.month,
-        day=pendulum_datetime.day,
-        hour=pendulum_datetime.hour,
-        minute=pendulum_datetime.minute,
-        second=pendulum_datetime.second,
-        microsecond=pendulum_datetime.microsecond,
-        tzinfo=pendulum_datetime.tzinfo,
-    ).astimezone(tzinfo)
+    return datetime.datetime.fromisoformat(pendulum_datetime.isoformat())
 
 
 def detailed_raise_for_status(res, truncate=400):
