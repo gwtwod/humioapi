@@ -5,7 +5,12 @@
 
 ### Added
 
+- Basic API for executing user provided graphql for convenience
+
 ### Changed
+
+- `HumioAPI.repositories` now accepts a `fast=False` parameter. When set to True, only basic information is returned for each repository/view. This helps in environments with thousands of repositories which would otherwise take a long time to fetch.
+- Changed graphql queries for repositories and parsers to be in line with Humio version 1.42.1 graphql endpoints
 
 ### Fixed
 

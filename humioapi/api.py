@@ -7,7 +7,7 @@ import json
 import tzlocal
 import structlog
 from humiolib.HumioClient import HumioClient, HumioIngestClient
-from humiolib.QueryJob import StaticQueryJob
+from .queries import SearchDomains, Parsers
 from .utils import parse_ts
 from .monkeypatch import poll_until_done, poll
 
@@ -188,12 +188,36 @@ class HumioAPI:
             buffer.append(event)
         ingest(events=buffer, parser=parser, fields=fields, tags=tags, dry=dry, **kwargs)
 
-    def repositories(self, **kwargs):
+    def graphql(self, query, variables=None, **kwargs):
         """
-        Returns a dictionary of repositories and views
+        Executes the provided graphql query or mutation and return the result.
+
+        See official Humio docs for available query and mutation objects.
 
         Parameters
         ----------
+        query : str
+            A graphql query
+        variables : str
+        """
+
+        client = HumioClient(base_url=self.base_url, repository="unused", user_token=self.token)
+        headers = client._default_user_headers
+        payload = {
+            "query": query,
+            "variables": variables,
+        }
+        response = client.webcaller.call_graphql(headers=headers, json=payload, **kwargs)
+        return response
+
+    def repositories(self, fast=False, **kwargs):
+        """
+        Returns a dictionary of repositories and views with various metadata.
+
+        Parameters
+        ----------
+        fast : boolean
+            If True, do not include permission and storage details which can be slow with many repositories
         **kwargs :
             Optional parameters forwarded to the humiolib/requests-call
 
@@ -202,61 +226,52 @@ class HumioAPI:
             dict: Metadata for all discovered repositories
         """
 
-        client = HumioClient(base_url=self.base_url, repository="unused", user_token=self.token)
-        headers = client._default_user_headers
+        if fast:
+            query = SearchDomains.searchDomainsSimple()
+        else:
+            query = SearchDomains.searchDomains()
 
-        query = """
-                query {
-                    searchDomains {
-                        name, isStarred
-                        __typename
-                        ... on Repository {
-                            uncompressedByteSize,
-                            timeOfLatestIngest
-                            groups {
-                                displayName
-                            }
-                        }
-                        permissions {
-                            administerAlerts, administerDashboards,  administerFiles,
-                            administerMembers, administerParsers, administerQueries, read, write
-                        }
-                    }
-                }"""
-
-        payload = {
-            "query": query,
-            "variables": None,
-        }
-
-        response = client.webcaller.call_graphql(headers=headers, json=payload, **kwargs)
+        response = self.graphql(query=query, **kwargs)
         if not response.json():
             logger.error("No repositories or views found, verify that your token is valid")
 
         raw_repositories = [raw_repo for raw_repo in response.json()["data"]["searchDomains"]]
 
+        def _transform(repo, fast):
+            if fast:
+                return {
+                    "description": repo["description"] or "",
+                    "type": repo["domaintype"].lower(),
+                    "favourite": repo["isStarred"]
+                }
+            return {
+                "description": repo["description"] or "",
+                "type": repo["domaintype"].lower(),
+                "favourite": repo["isStarred"],
+                "last_ingest": parse_ts(repo.get("timeOfLatestIngest")) if repo.get("timeOfLatestIngest") else None,
+                "read_permission": repo["read"],
+                "write_permission": repo["administerIngestTokens"],
+                "queryadmin_permission": repo["administerQueries"],
+                "dashboardadmin_permission": repo["administerDashboards"],
+                "parseradmin_permission": repo["administerParsers"],
+                "fileadmin_permission": repo["administerFiles"],
+                "alertadmin_permission": repo["administerAlerts"],
+                "eventadmin_permission": repo["administerEvents"],
+                "datasourceadmin_permission": repo["administerDataSources"],
+                "roles": [role["displayName"] for role in repo.get("groups", [])],
+                "compressed_bytes": repo["compressedByteSize"] if "compressedByteSize" in repo else 0,
+                "uncompressed_bytes": repo["uncompressedByteSize"] if "uncompressedByteSize" in repo else 0,
+            }
+
         repositories = dict()
         for repo in raw_repositories:
             try:
-                repositories[repo["name"]] = {
-                    "type": repo["__typename"].lower(),
-                    "last_ingest": parse_ts(repo["timeOfLatestIngest"]) if "timeOfLatestIngest" in repo else None,
-                    "read_permission": repo["permissions"]["read"],
-                    "write_permission": repo["permissions"]["write"],
-                    "queryadmin_permission": repo["permissions"]["administerQueries"],
-                    "dashboardadmin_permission": repo["permissions"]["administerDashboards"],
-                    "parseradmin_permission": repo["permissions"]["administerParsers"],
-                    "fileadmin_permission": repo["permissions"]["administerFiles"],
-                    "alertadmin_permission": repo["permissions"]["administerAlerts"],
-                    "roles": [role["displayName"] for role in repo.get("groups", [])],
-                    "uncompressed_bytes": repo["uncompressedByteSize"] if "uncompressedByteSize" in repo else 0,
-                    "favourite": repo["isStarred"],
-                }
+                repositories[repo["name"]] = _transform(repo=repo, fast=fast)
             except (KeyError, AttributeError) as exc:
-                logger.exception("Couldn't map repository/view object", repo=repo.get("name"), error_message=exc)
+                logger.exception("Couldn't map repository/view object", repo=repo, error_message=exc)
         return repositories
 
-    def create_update_parser(self, repos, parser, source, **kwargs):
+    def create_update_parser(self, repos, parser, source, testdata=None, tagfields=None, **kwargs):
         """
         Creates or updates a parser with the given name and source in the specified repo
 
@@ -266,51 +281,14 @@ class HumioAPI:
             A dict of mutation types listing the affected repositories
         """
 
-        client = HumioClient(base_url=self.base_url, repository="unused", user_token=self.token)
-        headers = client._default_user_headers
-
         result = {"created": [], "updated": [], "unchanged": [], "failed": []}
 
         for repo in set(repos):
-            get = f"""
-                    query {{
-                        repository(name: {json.dumps(repo)}) {{
-                            name
-                            parser(name: {json.dumps(parser)}) {{
-                                name
-                                isBuiltIn
-                                sourceCode
-                            }}
-                            permissions {{
-                                administerParsers
-                            }}
-                        }}
-                    }}"""
+            get = Parsers.getParser(repo, parser)
+            create = Parsers.createParser(repo, parser, source=source, testdata=testdata, tagfields=tagfields)
+            update = Parsers.updateParser(repo, parser, source=source, testdata=testdata, tagfields=tagfields)
 
-            create = f"""
-                    mutation {{
-                        createParser(input: {{
-                            repositoryName: {json.dumps(repo)}, name: {json.dumps(parser)},
-                            sourceCode: {json.dumps(source)}, testData: [], tagFields: []
-                        }}) {{
-                            __typename
-                        }}
-                    }}"""
-
-            update = f"""
-                    mutation {{
-                        updateParser(
-                            repositoryName: {json.dumps(repo)}, name: {json.dumps(parser)},
-                            input: {{
-                                sourceCode: {json.dumps(source)}
-                            }}
-                        ) {{
-                        __typename
-                        }}
-                    }}"""
-
-            response = client.webcaller.call_graphql(headers=headers, json={"query": get}, **kwargs)
-            existing_repo = response.json().get("data")
+            existing_repo = self.graphql(get, **kwargs).json().get("data")
             if not existing_repo:
                 logger.error("Did not find a repo with the given name, verify its existence/your access", repo=repo)
                 result["failed"].append(repo)
@@ -319,12 +297,10 @@ class HumioAPI:
             existing_parser = existing_repo["repository"].get("parser")
             if not existing_parser:
                 logger.info("Creating new parser", repo=repo, parser=parser)
-                response = client.webcaller.call_graphql(headers=headers, json={"query": create}, **kwargs)
-                response = response.json()
-                if response.get("errors"):
-                    logger.error(
-                        "Failed to create new parser", repo=repo, parser=parser, json_payload=(json.dumps(response))
-                    )
+
+                res = self.graphql(create, **kwargs).json()
+                if res.get("errors"):
+                    logger.error("Failed to create new parser", repo=repo, parser=parser, response=(json.dumps(res)))
                     result["failed"].append(repo)
                     continue
                 else:
@@ -334,19 +310,15 @@ class HumioAPI:
                 if old_source != source:
                     logger.info("Updating existing parser", repo=repo, parser=parser)
 
-                    response = client.webcaller.call_graphql(headers=headers, json={"query": update}, **kwargs)
-                    response = response.json()
-                    if response.get("errors"):
-                        logger.error(
-                            "Failed to create new parser", repo=repo, parser=parser, json_payload=(json.dumps(response))
-                        )
+                    res = self.graphql(update, **kwargs).json()
+                    if res.get("errors"):
+                        logger.error("Failed to update parser", repo=repo, parser=parser, response=(json.dumps(res)))
                         result["failed"].append(repo)
                         continue
                     else:
                         result["updated"].append(repo)
                 else:
-                    logger.info("Existing parser is identical", repo=repo, parser=parser)
+                    logger.info("Existing parser source is identical, not updating", repo=repo, parser=parser)
                     result["unchanged"].append(repo)
 
         return result
-

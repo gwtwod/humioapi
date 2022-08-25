@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "humioapi"
-version = "0.10.0"
+version = "0.11.0"
 description = "An unofficial Python library wrapping the official humiolib to provide extra helpers and utility functions"
 authors = ["Jostein Haukeli"]
 repository = "https://github.com/gwtwod/humioapi"
@@ -40,7 +40,7 @@ to = {format = "setuppy", path = "setup.py"}
 
 [tool.black]
 line-length = 120
-target-version = ['py36', 'py37', 'py38']
+target-version = ['py38', 'py39', 'py310']
 include = '\.pyi?$'
 exclude = '''
 (/(
