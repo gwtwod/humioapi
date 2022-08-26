@@ -5,7 +5,8 @@
 
 ### Added
 
-- Basic API for executing user provided graphql for convenience
+- Add `ingest_csv` API for ingesting CSV files through Humio's structured data endpoint
+- Add `graphql` API for executing user provided graphql for convenience
 
 ### Changed
 
@@ -14,6 +15,8 @@
 - Replaced pendulum to native datetime helper with C-optimized version available since Python 3.7
 
 ### Fixed
+
+- `parse_ts` would throw deprecation warnings related to `pytz` when `tzlocal` v4 was used. Supporessed these warnings since v4 added a shim providing backwards compatability for now.
 
 ### Deprecated
 

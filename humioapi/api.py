@@ -4,9 +4,13 @@ This module implements an API object for interacting with the Humio API
 
 import types
 import json
+import csv
 import tzlocal
+import pendulum
 import structlog
 from humiolib.HumioClient import HumioClient, HumioIngestClient
+
+from humioapi.exceptions import HumioTimestampException
 from .queries import SearchDomains, Parsers
 from .utils import parse_ts
 from .monkeypatch import poll_until_done, poll
@@ -187,6 +191,95 @@ class HumioAPI:
                 del buffer[:]
             buffer.append(event)
         ingest(events=buffer, parser=parser, fields=fields, tags=tags, dry=dry, **kwargs)
+
+    def ingest_csv(self, source, ts_field=None, tags=None, dialect=None, dry=False, **kwargs):
+        """
+        Send the provided CSV data containing headers to Humio for ingestion as JSON formatted events.
+        The CSV header itself will not be ingested.
+
+        Note that Humio expects timestamps to be provided for each CSV event. Default is current time.
+
+        Parameters
+        ----------
+        source : File path or File compatible object
+            A file path or file-like object supporting `read` and `seek`. For example from `open` or `StringIO`.
+        ts_field : str
+            Name of a CSV field to be used for event timestamps. Defaults to current time if not provided.
+            If provided, all lines are expected to have a valid timestamp in the provided column.
+        tags : dict
+            Tags to add to each ingested event.
+        dialect : str or csv.Dialect
+            A CSV dialect name or csv.Dialect class compatible with the `csv` module. See `csv.list_dialects()`.
+            Defaults to auto detection based on file contents, which requires the file object to support `seek`.
+        dry : boolean
+            If true, no events will actually be sent to Humio
+        **kwargs :
+            Optional parameters forwarded to the humiolib/requests-call
+        """
+
+        class FileWrapper:
+            """A simple file object wrapper to track the previously read line"""
+
+            def __init__(self, f):
+                self.f = f
+                self.last_read = None
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                self.last_read = next(self.f)
+                return self.last_read
+
+        if dry:
+            logger.warn("Running in dry mode, no events will be ingested")
+
+        if tags is None:
+            tags = {}
+
+        client = HumioIngestClient(base_url=self.base_url, ingest_token=self.ingest_token)
+
+        def prepare_events(csvfile, dialect=dialect):
+            if dialect is None:
+                dialect = csv.Sniffer().sniff(csvfile.read(1024))
+                csvfile.seek(0)
+                logger.info(
+                    "Using CSV dialect based on autodetected input",
+                    delimiter=dialect.delimiter,
+                    quotechar=dialect.quotechar,
+                    lineterminator=dialect.lineterminator,
+                    doublequote=dialect.doublequote,
+                    skipinitialspace=dialect.skipinitialspace,
+                )
+
+            csvwrapper = FileWrapper(csvfile)
+            reader = csv.DictReader(csvwrapper, dialect=dialect)
+
+            events = []
+            for attributes in reader:
+                if ts_field:
+                    timestamp = attributes["ts_field"] or None
+                    if not timestamp:
+                        raise HumioTimestampException(f"Timestamp missing for column {ts_field}: {csvwrapper.last_read}")
+                    timestamp = parse_ts(timestamp).isoformat()
+                else:
+                    timestamp = pendulum.now().isoformat()
+                events.append({
+                    "timestamp": timestamp,
+                    "attributes": attributes,
+                    "rawstring": csvwrapper.last_read,
+                })
+            return events
+
+        if isinstance(source, str):
+            with open(source) as csvfile:
+                events = prepare_events(csvfile)
+        else:
+            events = prepare_events(csvfile)
+
+        payload = [{"tags": tags, "events": events}]
+        if not dry:
+            client.ingest_json_data(json_elements=payload, **kwargs)
 
     def graphql(self, query, variables=None, **kwargs):
         """

@@ -2,13 +2,14 @@
 Collection of misc utility functions
 """
 
+import warnings
+import functools
 import re
 import urllib
 import pendulum
 import snaptime
 import datetime
 import tzlocal
-from dateutil.tz import gettz
 from .exceptions import HumioTimestampException
 from requests.exceptions import HTTPError
 import structlog
@@ -16,6 +17,22 @@ import structlog
 logger = structlog.getLogger(__name__)
 
 
+def ignore_warning(message="", category=Warning, module=""):
+    """
+    Decorator to ignore matching warnings during method execution.
+    """
+
+    def inner(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=Warning, module="")
+                return func(*args, **kwargs)
+        return wrapper
+    return inner
+
+
+@ignore_warning(message=".*pytz-deprecation-shim.*", module="pendulum")  # tzlocal prefers zoneinfo over pytz
 def parse_ts(timestamp, stdlib=False):
     """
     Parses a provided timestamp string in either a millisecond-epoch, a
