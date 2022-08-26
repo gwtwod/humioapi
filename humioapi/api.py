@@ -192,7 +192,7 @@ class HumioAPI:
             buffer.append(event)
         ingest(events=buffer, parser=parser, fields=fields, tags=tags, dry=dry, **kwargs)
 
-    def ingest_csv(self, source, ts_field=None, tags=None, dialect=None, dry=False, **kwargs):
+    def ingest_csv(self, source, ts_field=None, tags=None, dialect=None, encoding=None, dry=False, **kwargs):
         """
         Send the provided CSV data containing headers to Humio for ingestion as JSON formatted events.
         The CSV header itself will not be ingested.
@@ -211,6 +211,8 @@ class HumioAPI:
         dialect : str or csv.Dialect
             A CSV dialect name or csv.Dialect class compatible with the `csv` module. See `csv.list_dialects()`.
             Defaults to auto detection based on file contents, which requires the file object to support `seek`.
+        encoding : str
+            The encoding to open the CSV file as. Defaults to platform encoding if not specified.
         dry : boolean
             If true, no events will actually be sent to Humio
         **kwargs :
@@ -258,7 +260,7 @@ class HumioAPI:
             events = []
             for attributes in reader:
                 if ts_field:
-                    timestamp = attributes["ts_field"] or None
+                    timestamp = attributes[ts_field] or None
                     if not timestamp:
                         raise HumioTimestampException(f"Timestamp missing for column {ts_field}: {csvwrapper.last_read}")
                     timestamp = parse_ts(timestamp).isoformat()
@@ -272,7 +274,7 @@ class HumioAPI:
             return events
 
         if isinstance(source, str):
-            with open(source) as csvfile:
+            with open(source, mode="r", encoding=encoding) as csvfile:
                 events = prepare_events(csvfile)
         else:
             events = prepare_events(csvfile)

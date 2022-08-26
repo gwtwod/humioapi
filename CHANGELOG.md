@@ -1,7 +1,19 @@
 # Changelog
 
-
 ## [Unreleased]
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Deprecated
+
+### Removed
+
+
+## [0.11.0] - 2022-08-26
 
 ### Added
 
