@@ -19,7 +19,7 @@ chardet = ">=4"
 python-dotenv = ">=0.15"
 pendulum = ">=2.1.2"
 colorama = ">=0.4.4"
-humiolib = ">=0.2.2"
+humiolib = "^0.2.4"
 tqdm = ">=4.62.3"
 pandas = {version = ">=1.2", optional = true}
 
